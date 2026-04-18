@@ -61,6 +61,8 @@ class Strategy:
 
         side = "yes" if edge > 0 else "no"
         market_price = market.yes_price if side == "yes" else market.no_price
+        if market_price < 0.02:  # no realistic ask/bid — token has no liquidity
+            return None
         return TradeSignal(
             market=market,
             side=side,
@@ -123,14 +125,20 @@ class Strategy:
             f = lambda v: (v - 32) * 5 / 9 if unit == "F" else v
             return ("range", f(v1), f(v2), use_max)
 
-        # Directional: "exceed 80°F", "below 32°F"
+        # Directional or exact temperature
         m = Strategy._TEMP_RE.search(question)
         if not m:
             return None
         value, unit = float(m.group(1)), m.group(2).upper()
         threshold_c = (value - 32) * 5 / 9 if unit == "F" else value
-        direction = "below" if any(w in q for w in ("below", "under", "drop", "fall")) else "above"
-        return ("dir", direction, threshold_c, use_max)
+
+        if re.search(r"\b(below|under|drop|fall|lower)\b|or less", q):
+            return ("dir", "below", threshold_c, use_max)
+        if re.search(r"\b(higher|exceed|above|over)\b|or more|at least", q):
+            return ("dir", "above", threshold_c, use_max)
+        # No directional word → exact temperature ("be 23°C") → 1-degree range
+        delta_c = 5 / 9 if unit == "F" else 1.0
+        return ("range", threshold_c, threshold_c + delta_c, use_max)
 
     def _forecast_prob(self, market: WeatherMarket, forecast: WeatherForecast) -> tuple[float, bool]:
         """Return (forecast_prob, is_temp_market)."""
