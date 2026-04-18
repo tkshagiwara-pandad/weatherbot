@@ -10,15 +10,42 @@ logger = logging.getLogger(__name__)
 CLOB_URL = "https://clob.polymarket.com"
 WEATHER_KEYWORDS = ["rain", "precipitation", "temperature", "snow", "storm", "weather", "humidity"]
 
-CITY_ALIASES: dict[str, Optional[str]] = {
+# 略称 → Visual Crossing が認識する正式名
+CITY_ALIASES: dict[str, str] = {
     "NYC": "New York City",
     "NY": "New York City",
     "LA": "Los Angeles",
     "DC": "Washington DC",
     "SF": "San Francisco",
-    "UK": None,   # 国レベルは不可
-    "US": None,
-    "EU": None,
+}
+
+# Polymarket に実際に存在する天気マーケットの都市リスト
+# 質問文にこのいずれかが含まれる場合のみ処理する
+KNOWN_CITIES: set[str] = {
+    "New York City", "New York", "NYC", "NY",
+    "Los Angeles", "LA",
+    "Chicago",
+    "Houston",
+    "Miami",
+    "Dallas",
+    "Seattle",
+    "San Francisco", "SF",
+    "Boston",
+    "Atlanta",
+    "Denver",
+    "Las Vegas",
+    "Phoenix",
+    "London",
+    "Paris",
+    "Tokyo",
+    "Sydney",
+    "Dubai",
+    "Singapore",
+    "Hong Kong",
+    "Mumbai",
+    "Berlin",
+    "Toronto",
+    "Washington DC", "DC",
 }
 
 
@@ -104,11 +131,8 @@ class PolymarketClient:
 
     @staticmethod
     def _extract_city(question: str) -> str:
-        # "in [City]" パターン：1〜3語の先頭大文字単語を都市名として抽出
-        match = re.search(
-            r"\bin\s+((?:[A-Z][a-zA-Z]+)(?:\s+[A-Z][a-zA-Z]+){0,2})", question
-        )
-        if not match:
-            return ""
-        city = match.group(1).strip()
-        return CITY_ALIASES.get(city, city) or ""
+        # 既知の都市名が質問文に含まれているか直接照合（長い名前を優先）
+        for city in sorted(KNOWN_CITIES, key=len, reverse=True):
+            if re.search(rf"\b{re.escape(city)}\b", question, re.IGNORECASE):
+                return CITY_ALIASES.get(city, city)
+        return ""
