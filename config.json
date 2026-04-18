@@ -4,7 +4,7 @@
   ],
   "max_trade_usdc": 3.0,
   "daily_limit_usdc": 50.0,
-  "min_edge": 0.08,
+  "min_edge": 0.05,
   "trade_amount_usdc": 3.0,
   "min_volume_usdc": 1000.0,
   "scan_interval_minutes": 60,

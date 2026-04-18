@@ -104,13 +104,11 @@ class PolymarketClient:
 
     @staticmethod
     def _extract_city(question: str) -> str:
+        # "in [City]" パターン：1〜3語の先頭大文字単語を都市名として抽出
         match = re.search(
-            r"\bin\s+([A-Z][a-zA-Z\s]+?)(?:\s+on|\s+during|\s+this|\?|$)", question
+            r"\bin\s+((?:[A-Z][a-zA-Z]+)(?:\s+[A-Z][a-zA-Z]+){0,2})", question
         )
         if not match:
             return ""
         city = match.group(1).strip()
-        # 単語数が多すぎる場合は都市名ではない ("Ukraine before July" など)
-        if len(city.split()) > 3:
-            return ""
         return CITY_ALIASES.get(city, city) or ""
