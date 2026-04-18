@@ -27,10 +27,6 @@ def main():
     with open("config.json") as f:
         cfg = json.load(f)
 
-    weather_key = os.environ.get("VISUAL_CROSSING_API_KEY")
-    if not weather_key:
-        raise RuntimeError("VISUAL_CROSSING_API_KEY not set")
-
     # 秘密鍵はドライランでは不要
     private_key = os.environ.get("WALLET_PRIVATE_KEY")
     if not args.dry_run and not private_key:
@@ -49,7 +45,7 @@ def main():
         max_trade_usdc=cfg["max_trade_usdc"],
         daily_limit_usdc=cfg["daily_limit_usdc"],
     )
-    weather = WeatherClient(api_key=weather_key)
+    weather = WeatherClient()
     polymarket = PolymarketClient()
     strategy = Strategy(
         min_edge=cfg["min_edge"],
