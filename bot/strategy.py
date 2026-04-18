@@ -50,18 +50,20 @@ class Strategy:
         self._log_path = log_path
         self._edge_adjustment = 0.0     # raised when win-rate is low
 
-    def evaluate(self, market: WeatherMarket, forecast: WeatherForecast) -> Optional[TradeSignal]:
-        if market.volume < self._min_volume or not market.active:
-            return None
-
+    def _forecast_prob(self, market: WeatherMarket, forecast: WeatherForecast) -> tuple[float, bool]:
+        """Return (forecast_prob, is_temp_market)."""
         parsed = self._parse_temp_market(market.question)
         if parsed:
             threshold_c, direction, use_max = parsed
             raw_temp = forecast.temp_max_c if use_max else forecast.temp_min_c
-            forecast_prob = self._temp_prob(raw_temp, threshold_c, direction)
-        else:
-            forecast_prob = forecast.precip_prob
+            return self._temp_prob(raw_temp, threshold_c, direction), True
+        return forecast.precip_prob, False
 
+    def evaluate(self, market: WeatherMarket, forecast: WeatherForecast) -> Optional[TradeSignal]:
+        if market.volume < self._min_volume or not market.active:
+            return None
+
+        forecast_prob, _ = self._forecast_prob(market, forecast)
         edge = forecast_prob - market.yes_price
         if abs(edge) < (self._min_edge + self._edge_adjustment):
             return None
@@ -75,6 +77,18 @@ class Strategy:
             forecast_prob=forecast_prob,
             market_price=market_price,
         )
+
+    def top_candidates(
+        self,
+        market: WeatherMarket,
+        forecast: WeatherForecast,
+    ) -> Optional[tuple[float, float, bool]]:
+        """Return (forecast_prob, edge, is_temp) for any evaluated market, ignoring edge threshold."""
+        if market.volume < self._min_volume or not market.active:
+            return None
+        forecast_prob, is_temp = self._forecast_prob(market, forecast)
+        edge = forecast_prob - market.yes_price
+        return forecast_prob, edge, is_temp
 
     # ------------------------------------------------------------------
     # Temperature market helpers

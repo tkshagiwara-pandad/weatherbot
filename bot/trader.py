@@ -47,6 +47,9 @@ class Trader:
                     city_dates.add((m.city, dt))
         self._weather.prefetch(city_dates)
 
+        # (abs_edge, edge, forecast_prob, is_temp, question)
+        candidates: list[tuple[float, float, float, bool, str]] = []
+
         for market in markets:
             if not market.city or not market.active:
                 skip_no_city += 1
@@ -61,6 +64,10 @@ class Trader:
                 if forecast is None:
                     skip_error += 1
                     continue
+                cand = self._strategy.top_candidates(market, forecast)
+                if cand:
+                    fp, edge, is_temp = cand
+                    candidates.append((abs(edge), edge, fp, is_temp, market.question))
                 signal = self._strategy.evaluate(market, forecast)
                 if not signal:
                     skip_no_edge += 1
@@ -81,6 +88,15 @@ class Trader:
             mode, traded, skip_no_city, skip_date, skip_no_edge, skip_error,
             self._signer.daily_remaining(),
         )
+
+        if candidates:
+            candidates.sort(reverse=True)
+            temp_count = sum(1 for _, _, _, is_temp, _ in candidates if is_temp)
+            logger.info("Top candidates (%d temp / %d precip markets evaluated):", temp_count, len(candidates) - temp_count)
+            for abs_edge, edge, fp, is_temp, question in candidates[:5]:
+                kind = "TEMP" if is_temp else "PRCP"
+                logger.info("  [%s] edge=%+.3f  fp=%.0f%%  %s", kind, edge, fp * 100, question[:70])
+
         self._strategy.self_learn()
 
     # ------------------------------------------------------------------
