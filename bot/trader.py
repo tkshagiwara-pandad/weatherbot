@@ -47,8 +47,8 @@ class Trader:
                     city_dates.add((m.city, dt))
         self._weather.prefetch(city_dates)
 
-        # (abs_edge, edge, forecast_prob, is_temp, question)
-        candidates: list[tuple[float, float, float, bool, str]] = []
+        # (abs_edge, edge, forecast_prob, is_temp, volume, question)
+        candidates: list[tuple[float, float, float, bool, float, str]] = []
 
         for market in markets:
             if not market.city or not market.active:
@@ -68,7 +68,7 @@ class Trader:
                     skip_error += 1
                     continue
                 fp, edge, is_temp = self._strategy.top_candidates(market, forecast)
-                candidates.append((abs(edge), edge, fp, is_temp, market.question))
+                candidates.append((abs(edge), edge, fp, is_temp, market.volume, market.question))
                 if abs(edge) >= (self._strategy._min_edge + self._strategy._edge_adjustment):
                     signal = self._strategy.evaluate(market, forecast)
                     if signal:
@@ -93,14 +93,14 @@ class Trader:
 
         if candidates:
             candidates.sort(reverse=True)
-            temp_count = sum(1 for _, _, _, is_temp, _ in candidates if is_temp)
+            temp_count = sum(1 for _, _, _, is_temp, _, _ in candidates if is_temp)
             logger.info(
-                "Top candidates (%d temp / %d precip out of %d above-volume markets):",
+                "Top candidates (%d temp / %d precip out of %d evaluated):",
                 temp_count, len(candidates) - temp_count, len(candidates),
             )
-            for abs_edge, edge, fp, is_temp, question in candidates[:5]:
+            for abs_edge, edge, fp, is_temp, volume, question in candidates[:5]:
                 kind = "TEMP" if is_temp else "PRCP"
-                logger.info("  [%s] edge=%+.3f  fp=%.0f%%  %s", kind, edge, fp * 100, question[:70])
+                logger.info("  [%s] edge=%+.3f  fp=%.0f%%  vol=$%.0f  %s", kind, edge, fp * 100, volume, question[:60])
         else:
             logger.info("No markets passed volume filter (min_volume=%.0f USDC)", self._strategy._min_volume)
 
