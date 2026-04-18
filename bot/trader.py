@@ -33,38 +33,40 @@ class Trader:
     def scan_and_trade(self):
         logger.info("Scanning markets...")
         markets = self._polymarket.get_weather_markets()
-        traded = skipped = 0
+        traded = 0
+        skip_no_city = skip_date = skip_no_edge = skip_error = 0
 
         today = date.today()
         for market in markets:
             if not market.city or not market.active:
-                skipped += 1
+                skip_no_city += 1
                 continue
             try:
                 target_date = self._parse_date(market.end_date)
                 # 過去 or 14日超先のマーケットはスキップ（予報精度外）
                 if target_date < today or target_date > today + timedelta(days=14):
-                    skipped += 1
+                    skip_date += 1
                     continue
                 forecast = self._weather.get_forecast(market.city, target_date)
                 signal = self._strategy.evaluate(market, forecast)
                 if not signal:
-                    skipped += 1
+                    skip_no_edge += 1
                     continue
                 self._execute(signal)
                 traded += 1
                 time.sleep(1)
             except SecurityError as exc:
                 logger.warning("Blocked by signer: %s", exc)
-                skipped += 1
+                skip_error += 1
             except Exception as exc:
                 logger.warning("Error on market %s: %s", market.market_id[:8], exc)
-                skipped += 1
+                skip_error += 1
 
         mode = "[DRY RUN] " if self._dry_run else ""
         logger.info(
-            "%sDone: %d traded, %d skipped. Daily remaining: %.2f USDC",
-            mode, traded, skipped, self._signer.daily_remaining(),
+            "%sDone: %d traded | skipped: no_city=%d date=%d no_edge=%d error=%d | remaining=%.2f USDC",
+            mode, traded, skip_no_city, skip_date, skip_no_edge, skip_error,
+            self._signer.daily_remaining(),
         )
         self._strategy.self_learn()
 
