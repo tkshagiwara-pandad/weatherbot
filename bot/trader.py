@@ -22,11 +22,13 @@ class Trader:
         polymarket: PolymarketClient,
         strategy: Strategy,
         signer: SigningService,
+        dry_run: bool = False,
     ):
         self._weather = weather
         self._polymarket = polymarket
         self._strategy = strategy
         self._signer = signer
+        self._dry_run = dry_run
 
     def scan_and_trade(self):
         logger.info("Scanning markets...")
@@ -54,9 +56,10 @@ class Trader:
                 logger.warning("Error on market %s: %s", market.market_id[:8], exc)
                 skipped += 1
 
+        mode = "[DRY RUN] " if self._dry_run else ""
         logger.info(
-            "Done: %d traded, %d skipped. Daily remaining: %.2f USDC",
-            traded, skipped, self._signer.daily_remaining(),
+            "%sDone: %d traded, %d skipped. Daily remaining: %.2f USDC",
+            mode, traded, skipped, self._signer.daily_remaining(),
         )
         self._strategy.self_learn()
 
@@ -66,6 +69,17 @@ class Trader:
         amount = min(self._strategy._trade_amount, remaining)
         if amount < 1.0:
             logger.info("Daily limit reached, stopping trades")
+            return
+
+        if self._dry_run:
+            logger.info(
+                "[DRY RUN] Would buy %s  amount=%.2f USDC  price=%.3f  edge=%+.3f\n"
+                "          market : %s\n"
+                "          forecast_prob=%.0f%%  market_price=%.0f%%",
+                signal.side, amount, signal.market_price, signal.edge,
+                signal.market.question,
+                signal.forecast_prob * 100, signal.market_price * 100,
+            )
             return
 
         token_id = (
