@@ -74,7 +74,8 @@ class Trader:
                     if signal:
                         self._execute(signal)
                         traded += 1
-                        time.sleep(1)
+                        if not self._dry_run:
+                            time.sleep(1)
                         continue
                 skip_no_edge += 1
             except SecurityError as exc:
@@ -158,4 +159,4 @@ class Trader:
         try:
             return datetime.fromisoformat(end_date_iso.replace("Z", "+00:00")).date()
         except Exception:
-            return date.today() + timedelta(days=1)
+            return date.min  # empty/malformed end_date → filtered by target_date < today

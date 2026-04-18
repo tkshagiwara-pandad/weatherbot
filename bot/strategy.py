@@ -50,15 +50,6 @@ class Strategy:
         self._log_path = log_path
         self._edge_adjustment = 0.0     # raised when win-rate is low
 
-    def _forecast_prob(self, market: WeatherMarket, forecast: WeatherForecast) -> tuple[float, bool]:
-        """Return (forecast_prob, is_temp_market)."""
-        parsed = self._parse_temp_market(market.question)
-        if parsed:
-            threshold_c, direction, use_max = parsed
-            raw_temp = forecast.temp_max_c if use_max else forecast.temp_min_c
-            return self._temp_prob(raw_temp, threshold_c, direction), True
-        return forecast.precip_prob, False
-
     def evaluate(self, market: WeatherMarket, forecast: WeatherForecast) -> Optional[TradeSignal]:
         if market.volume < self._min_volume or not market.active:
             return None
@@ -92,39 +83,82 @@ class Strategy:
     # Temperature market helpers
     # ------------------------------------------------------------------
 
-    # Matches "80°F", "30.5°C", "75 degrees F", "75 F" etc.
+    # "between 48°F and 49°F"  →  groups: (48, F, 49)
+    _TEMP_RANGE_AND = re.compile(
+        r"between\s+(\d+(?:\.\d+)?)\s*°?\s*([FC])\s+and\s+(\d+(?:\.\d+)?)",
+        re.IGNORECASE,
+    )
+    # "between 59-60°F" or "between 50–51 °F"  →  groups: (59, 60, F)
+    _TEMP_RANGE_DASH = re.compile(
+        r"between\s+(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*°?\s*([FC])\b",
+        re.IGNORECASE,
+    )
+    # Single threshold: "80°F", "30.5°C", "75 degrees F"
     _TEMP_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:°\s*|degrees?\s+)([FC])\b", re.IGNORECASE)
 
     @staticmethod
-    def _parse_temp_market(
-        question: str,
-    ) -> Optional[tuple[float, str, bool]]:
-        """Return (threshold_c, direction, use_max) for temp markets, else None."""
+    def _parse_temp_market(question: str) -> Optional[tuple]:
+        """Return tagged tuple for temp markets, else None.
+
+        Range:      ("range", lo_c, hi_c, use_max)
+        Directional: ("dir",  direction, threshold_c, use_max)
+        """
         q = question.lower()
         if not any(kw in q for kw in ("temperature", "degrees", "°f", "°c")):
             return None
 
+        use_max = "low" not in q or "high" in q
+
+        # Range: "between 48°F and 49°F"
+        m = Strategy._TEMP_RANGE_AND.search(question)
+        if m:
+            v1, unit, v2 = float(m.group(1)), m.group(2).upper(), float(m.group(3))
+            f = lambda v: (v - 32) * 5 / 9 if unit == "F" else v
+            return ("range", f(v1), f(v2), use_max)
+
+        # Range: "between 59-60°F"
+        m = Strategy._TEMP_RANGE_DASH.search(question)
+        if m:
+            v1, v2, unit = float(m.group(1)), float(m.group(2)), m.group(3).upper()
+            f = lambda v: (v - 32) * 5 / 9 if unit == "F" else v
+            return ("range", f(v1), f(v2), use_max)
+
+        # Directional: "exceed 80°F", "below 32°F"
         m = Strategy._TEMP_RE.search(question)
         if not m:
             return None
-
-        value = float(m.group(1))
-        unit = m.group(2).upper()
+        value, unit = float(m.group(1)), m.group(2).upper()
         threshold_c = (value - 32) * 5 / 9 if unit == "F" else value
-
         direction = "below" if any(w in q for w in ("below", "under", "drop", "fall")) else "above"
-        use_max = "low" not in q or "high" in q
+        return ("dir", direction, threshold_c, use_max)
 
-        return threshold_c, direction, use_max
+    def _forecast_prob(self, market: WeatherMarket, forecast: WeatherForecast) -> tuple[float, bool]:
+        """Return (forecast_prob, is_temp_market)."""
+        parsed = self._parse_temp_market(market.question)
+        if parsed is None:
+            return forecast.precip_prob, False
+
+        if parsed[0] == "range":
+            _, lo_c, hi_c, use_max = parsed
+            raw_temp = forecast.temp_max_c if use_max else forecast.temp_min_c
+            return self._temp_range_prob(raw_temp, lo_c, hi_c), True
+
+        _, direction, threshold_c, use_max = parsed
+        raw_temp = forecast.temp_max_c if use_max else forecast.temp_min_c
+        return self._temp_prob(raw_temp, threshold_c, direction), True
 
     @staticmethod
     def _temp_prob(forecast_temp_c: float, threshold_c: float, direction: str, sigma: float = 3.0) -> float:
-        """Logistic estimate of P(temp exceeds/falls below threshold).
-
-        sigma=3°C represents typical short-range forecast uncertainty.
-        """
+        """P(temp exceeds/falls below threshold) via logistic function."""
         p = 1.0 / (1.0 + math.exp(-(forecast_temp_c - threshold_c) / sigma))
         return p if direction == "above" else 1.0 - p
+
+    @staticmethod
+    def _temp_range_prob(forecast_temp_c: float, lo_c: float, hi_c: float, sigma: float = 3.0) -> float:
+        """P(lo <= temp <= hi) via logistic distribution."""
+        p_above_lo = 1.0 / (1.0 + math.exp(-(forecast_temp_c - lo_c) / sigma))
+        p_above_hi = 1.0 / (1.0 + math.exp(-(forecast_temp_c - hi_c) / sigma))
+        return max(0.0, p_above_lo - p_above_hi)
 
     def log_trade(self, signal: TradeSignal, amount_usdc: float):
         record = TradeRecord(
