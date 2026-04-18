@@ -83,9 +83,7 @@ class Strategy:
         market: WeatherMarket,
         forecast: WeatherForecast,
     ) -> Optional[tuple[float, float, bool]]:
-        """Return (forecast_prob, edge, is_temp) for any evaluated market, ignoring edge threshold."""
-        if market.volume < self._min_volume or not market.active:
-            return None
+        """Return (forecast_prob, edge, is_temp) — volume check done by caller."""
         forecast_prob, is_temp = self._forecast_prob(market, forecast)
         edge = forecast_prob - market.yes_price
         return forecast_prob, edge, is_temp

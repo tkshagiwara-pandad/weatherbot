@@ -34,7 +34,7 @@ class Trader:
         logger.info("Scanning markets...")
         markets = self._polymarket.get_weather_markets()
         traded = 0
-        skip_no_city = skip_date = skip_no_edge = skip_error = 0
+        skip_no_city = skip_date = skip_low_vol = skip_no_edge = skip_error = 0
 
         today = date.today()
 
@@ -60,21 +60,23 @@ class Trader:
                 if target_date < today or target_date > today + timedelta(days=14):
                     skip_date += 1
                     continue
+                if market.volume < self._strategy._min_volume:
+                    skip_low_vol += 1
+                    continue
                 forecast = self._weather.get_forecast(market.city, target_date)
                 if forecast is None:
                     skip_error += 1
                     continue
-                cand = self._strategy.top_candidates(market, forecast)
-                if cand:
-                    fp, edge, is_temp = cand
-                    candidates.append((abs(edge), edge, fp, is_temp, market.question))
-                signal = self._strategy.evaluate(market, forecast)
-                if not signal:
-                    skip_no_edge += 1
-                    continue
-                self._execute(signal)
-                traded += 1
-                time.sleep(1)
+                fp, edge, is_temp = self._strategy.top_candidates(market, forecast)
+                candidates.append((abs(edge), edge, fp, is_temp, market.question))
+                if abs(edge) >= (self._strategy._min_edge + self._strategy._edge_adjustment):
+                    signal = self._strategy.evaluate(market, forecast)
+                    if signal:
+                        self._execute(signal)
+                        traded += 1
+                        time.sleep(1)
+                        continue
+                skip_no_edge += 1
             except SecurityError as exc:
                 logger.warning("Blocked by signer: %s", exc)
                 skip_error += 1
@@ -84,18 +86,23 @@ class Trader:
 
         mode = "[DRY RUN] " if self._dry_run else ""
         logger.info(
-            "%sDone: %d traded | skipped: no_city=%d date=%d no_edge=%d error=%d | remaining=%.2f USDC",
-            mode, traded, skip_no_city, skip_date, skip_no_edge, skip_error,
+            "%sDone: %d traded | skipped: no_city=%d date=%d low_vol=%d no_edge=%d error=%d | remaining=%.2f USDC",
+            mode, traded, skip_no_city, skip_date, skip_low_vol, skip_no_edge, skip_error,
             self._signer.daily_remaining(),
         )
 
         if candidates:
             candidates.sort(reverse=True)
             temp_count = sum(1 for _, _, _, is_temp, _ in candidates if is_temp)
-            logger.info("Top candidates (%d temp / %d precip markets evaluated):", temp_count, len(candidates) - temp_count)
+            logger.info(
+                "Top candidates (%d temp / %d precip out of %d above-volume markets):",
+                temp_count, len(candidates) - temp_count, len(candidates),
+            )
             for abs_edge, edge, fp, is_temp, question in candidates[:5]:
                 kind = "TEMP" if is_temp else "PRCP"
                 logger.info("  [%s] edge=%+.3f  fp=%.0f%%  %s", kind, edge, fp * 100, question[:70])
+        else:
+            logger.info("No markets passed volume filter (min_volume=%.0f USDC)", self._strategy._min_volume)
 
         self._strategy.self_learn()
 
