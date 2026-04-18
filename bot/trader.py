@@ -35,12 +35,17 @@ class Trader:
         markets = self._polymarket.get_weather_markets()
         traded = skipped = 0
 
+        today = date.today()
         for market in markets:
             if not market.city or not market.active:
                 skipped += 1
                 continue
             try:
                 target_date = self._parse_date(market.end_date)
+                # 過去 or 14日超先のマーケットはスキップ（予報精度外）
+                if target_date < today or target_date > today + timedelta(days=14):
+                    skipped += 1
+                    continue
                 forecast = self._weather.get_forecast(market.city, target_date)
                 signal = self._strategy.evaluate(market, forecast)
                 if not signal:

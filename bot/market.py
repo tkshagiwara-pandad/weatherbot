@@ -10,6 +10,17 @@ logger = logging.getLogger(__name__)
 CLOB_URL = "https://clob.polymarket.com"
 WEATHER_KEYWORDS = ["rain", "precipitation", "temperature", "snow", "storm", "weather", "humidity"]
 
+CITY_ALIASES: dict[str, Optional[str]] = {
+    "NYC": "New York City",
+    "NY": "New York City",
+    "LA": "Los Angeles",
+    "DC": "Washington DC",
+    "SF": "San Francisco",
+    "UK": None,   # 国レベルは不可
+    "US": None,
+    "EU": None,
+}
+
 
 @dataclass
 class WeatherMarket:
@@ -96,4 +107,10 @@ class PolymarketClient:
         match = re.search(
             r"\bin\s+([A-Z][a-zA-Z\s]+?)(?:\s+on|\s+during|\s+this|\?|$)", question
         )
-        return match.group(1).strip() if match else ""
+        if not match:
+            return ""
+        city = match.group(1).strip()
+        # 単語数が多すぎる場合は都市名ではない ("Ukraine before July" など)
+        if len(city.split()) > 3:
+            return ""
+        return CITY_ALIASES.get(city, city) or ""
