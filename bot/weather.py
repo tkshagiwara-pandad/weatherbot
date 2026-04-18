@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import date
+from typing import Optional
 
 import requests
 
@@ -25,9 +26,21 @@ class WeatherForecast:
 class WeatherClient:
     def __init__(self, api_key: str):
         self._key = api_key
-        self._cache: dict[tuple[str, date], WeatherForecast] = {}
+        # None はフェッチ失敗（429等）を表す。同じキーは再試行しない。
+        self._cache: dict[tuple[str, date], Optional[WeatherForecast]] = {}
 
-    def get_forecast(self, city: str, target_date: date) -> WeatherForecast:
+    def prefetch(self, city_dates: set[tuple[str, date]]):
+        """スキャン開始前に unique な (都市, 日付) を一括取得。失敗もキャッシュする。"""
+        todo = city_dates - self._cache.keys()
+        logger.info("Fetching weather for %d unique city×date pairs...", len(todo))
+        for city, dt in sorted(todo):
+            try:
+                self.get_forecast(city, dt)
+            except Exception as exc:
+                logger.warning("Weather fetch failed %s %s: %s", city, dt, exc)
+                self._cache[(city, dt)] = None  # 失敗をキャッシュして再試行しない
+
+    def get_forecast(self, city: str, target_date: date) -> Optional[WeatherForecast]:
         key = (city, target_date)
         if key in self._cache:
             return self._cache[key]
@@ -54,3 +67,4 @@ class WeatherClient:
         )
         self._cache[key] = result
         return result
+

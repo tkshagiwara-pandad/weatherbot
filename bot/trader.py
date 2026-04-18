@@ -37,6 +37,16 @@ class Trader:
         skip_no_city = skip_date = skip_no_edge = skip_error = 0
 
         today = date.today()
+
+        # スキャン前に unique な (都市, 日付) を一括フェッチ（1ペア=1リクエスト）
+        city_dates: set[tuple[str, date]] = set()
+        for m in markets:
+            if m.city and m.active:
+                dt = self._parse_date(m.end_date)
+                if today <= dt <= today + timedelta(days=14):
+                    city_dates.add((m.city, dt))
+        self._weather.prefetch(city_dates)
+
         for market in markets:
             if not market.city or not market.active:
                 skip_no_city += 1
@@ -48,6 +58,9 @@ class Trader:
                     skip_date += 1
                     continue
                 forecast = self._weather.get_forecast(market.city, target_date)
+                if forecast is None:
+                    skip_error += 1
+                    continue
                 signal = self._strategy.evaluate(market, forecast)
                 if not signal:
                     skip_no_edge += 1
