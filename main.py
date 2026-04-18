@@ -44,7 +44,7 @@ def main():
     from signer.signer import SigningService
 
     signer = SigningService(
-        private_key=private_key or "0x" + "0" * 64,  # ドライラン用ダミーキー
+        private_key="0x" + "0" * 64 if args.dry_run else private_key,
         allowed_contracts=cfg["allowed_contracts"],
         max_trade_usdc=cfg["max_trade_usdc"],
         daily_limit_usdc=cfg["daily_limit_usdc"],
