@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -62,17 +63,25 @@ def main():
                     focus_cities=cfg.get("focus_cities"),
                     watch_cities=cfg.get("watch_cities"))
 
-    interval = cfg.get("scan_interval_minutes", 60) * 60
+    default_interval = cfg.get("scan_interval_minutes", 60) * 60
+    peak_interval = cfg.get("peak_scan_interval_minutes", 15) * 60
+    peak_hours: set = set(cfg.get("peak_hours_utc", []))
+
+    def current_interval() -> int:
+        utc_hour = datetime.now(timezone.utc).hour
+        return peak_interval if utc_hour in peak_hours else default_interval
+
     mode_label = " [DRY RUN - no orders will be placed]" if args.dry_run else ""
     logger.info(
-        "Bot started%s | address=%s | scan every %d min",
-        mode_label, signer.address, interval // 60,
+        "Bot started%s | address=%s | default=%dmin peak=%dmin",
+        mode_label, signer.address, default_interval // 60, peak_interval // 60,
     )
     if notifier:
         notifier.send(
             f"🤖 <b>Bot started</b>{'  [DRY RUN]' if args.dry_run else ''}\n"
             f"Address: <code>{signer.address}</code>\n"
-            f"Scan every {interval // 60} min  |  Daily limit: {cfg['daily_limit_usdc']} USDC"
+            f"Default: {default_interval//60}min  |  Peak: {peak_interval//60}min\n"
+            f"Daily limit: {cfg['daily_limit_usdc']} USDC"
         )
 
     while True:
@@ -80,6 +89,7 @@ def main():
             trader.scan_and_trade()
         except Exception as exc:
             logger.error("Scan failed: %s", exc, exc_info=True)
+        interval = current_interval()
         logger.info("Sleeping %d minutes...", interval // 60)
         time.sleep(interval)
 
