@@ -84,13 +84,18 @@ class Trader:
                             logger.debug("No ask liquidity: %s", market.question[:60])
                             skip_no_liq += 1
                             continue
-                        # Recompute edge against real ask price
+                        # Require at least $1 of ask-side depth to avoid ghost quotes
+                        if quote.ask_size * quote.best_ask < 1.0:
+                            logger.debug("Thin ask (%.2f USDC): %s", quote.ask_size * quote.best_ask, market.question[:60])
+                            skip_no_liq += 1
+                            continue
+                        # Recompute edge against real ask price (must be strictly positive)
                         real_edge = (
                             signal.forecast_prob - quote.best_ask
                             if signal.side == "yes"
                             else (1.0 - signal.forecast_prob) - quote.best_ask
                         )
-                        if abs(real_edge) < (self._strategy._min_edge + self._strategy._edge_adjustment):
+                        if real_edge < (self._strategy._min_edge + self._strategy._edge_adjustment):
                             skip_no_edge += 1
                             continue
                         signal.market_price = quote.best_ask
