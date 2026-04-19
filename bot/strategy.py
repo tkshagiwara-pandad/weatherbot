@@ -57,6 +57,8 @@ class Strategy:
             return None
 
         forecast_prob, _ = self._forecast_prob(market, forecast)
+        if forecast_prob is None:
+            return None
         edge = forecast_prob - market.yes_price
         if abs(edge) < (self._min_edge + self._edge_adjustment):
             return None
@@ -83,6 +85,8 @@ class Strategy:
         if self._MONTHLY_RE.search(market.question):
             return None
         forecast_prob, is_temp = self._forecast_prob(market, forecast)
+        if forecast_prob is None:
+            return None
         edge = forecast_prob - market.yes_price
         return forecast_prob, edge, is_temp
 
@@ -157,10 +161,20 @@ class Strategy:
         # No directional word → exact single-degree market; too narrow to model
         return None
 
-    def _forecast_prob(self, market: WeatherMarket, forecast: WeatherForecast) -> tuple[float, bool]:
-        """Return (forecast_prob, is_temp_market)."""
+    _TEMP_KEYWORDS = frozenset(("temperature", "degrees", "°f", "°c"))
+
+    def _forecast_prob(self, market: WeatherMarket, forecast: WeatherForecast) -> tuple[Optional[float], bool]:
+        """Return (forecast_prob, is_temp_market).
+
+        Returns (None, True) when the question is a temperature market that
+        the model cannot evaluate (e.g. narrow 1°F/1°C bins, exact-value
+        markets).  Callers must treat None as "skip this market".
+        """
         parsed = self._parse_temp_market(market.question)
         if parsed is None:
+            q = market.question.lower()
+            if any(kw in q for kw in self._TEMP_KEYWORDS):
+                return None, True   # temp market but unmodelable — do not fall through to precip
             return forecast.precip_prob, False
 
         if parsed[0] == "range":
