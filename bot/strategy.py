@@ -115,19 +115,22 @@ class Strategy:
     )
     # Binary daily rain/precip: must mention rain/precip AND have a specific date
     _PRECIP_RAIN_RE = re.compile(r"\b(?:rain(?:fall)?|precipitation)\b", re.IGNORECASE)
+    _SNOW_RE = re.compile(r"\bsnow(?:fall)?\b", re.IGNORECASE)
     _PRECIP_DATE_RE = re.compile(
         r"\bon\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?"
         r"|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
         r"\s+\d{1,2}\b",
         re.IGNORECASE,
     )
-    # Patterns that disqualify a precip market from binary daily rain model
-    _PRECIP_SKIP_RE = re.compile(
-        r"\b(?:snow(?:fall)?|blizzard|hurricane|typhoon|tornado|flood|drought"
+    # Shared disqualifier for binary weather markets (events, amounts, aggregates)
+    _WEATHER_SKIP_RE = re.compile(
+        r"\b(?:blizzard|hurricane|typhoon|tornado|flood|drought"
         r"|first|last|record|total|average|monthly|seasonal|season|annual)\b"
         r"|\d+\s*(?:mm|cm|inch(?:es)?)\b",
         re.IGNORECASE,
     )
+    # WMO weather codes that indicate snowfall (Open-Meteo daily weather_code)
+    _SNOW_WMO_CODES = frozenset({71, 73, 75, 77, 85, 86})
 
     @staticmethod
     def _parse_temp_market(question: str) -> Optional[tuple]:
@@ -182,10 +185,11 @@ class Strategy:
         """Return (forecast_prob, is_temp_market).
 
         Returns (None, *) for any market the model cannot evaluate; callers
-        must treat None as "skip this market".  Only two types are modelled:
+        must treat None as "skip this market".  Three types are modelled:
           1. Directional / wide-range temperature markets → logistic(σ=3°C)
-          2. Binary daily rain/precip markets with a specific date → precip_prob
-        All other markets (snowfall events, amounts, monthly, exact temps, etc.)
+          2. Binary daily snow markets → precip_prob if weather_code is snow, else 0
+          3. Binary daily rain/precip markets with a specific date → precip_prob
+        All other markets (events, amounts, monthly, exact temps, etc.)
         return None and are silently skipped.
         """
         parsed = self._parse_temp_market(market.question)
@@ -193,11 +197,19 @@ class Strategy:
             q = market.question.lower()
             if any(kw in q for kw in self._TEMP_KEYWORDS):
                 return None, True   # temperature market but unmodelable
-            # Only accept binary daily rain/precip with a concrete date
-            if (self._PRECIP_RAIN_RE.search(market.question)
-                    and self._PRECIP_DATE_RE.search(market.question)
-                    and not self._PRECIP_SKIP_RE.search(market.question)):
-                return forecast.precip_prob, False
+            question = market.question
+            has_date = bool(self._PRECIP_DATE_RE.search(question))
+            is_skip = bool(self._WEATHER_SKIP_RE.search(question))
+            has_snow = bool(self._SNOW_RE.search(question))
+            has_rain = bool(self._PRECIP_RAIN_RE.search(question))
+            if has_date and not is_skip:
+                # "rain or snow" → any precipitation qualifies
+                if has_snow and has_rain:
+                    return forecast.precip_prob, False
+                if has_snow:
+                    return self._snow_prob(forecast), False
+                if has_rain:
+                    return forecast.precip_prob, False
             return None, False      # unrecognised market type — skip
 
         if parsed[0] == "range":
@@ -208,6 +220,18 @@ class Strategy:
         _, direction, threshold_c, use_max = parsed
         raw_temp = forecast.temp_max_c if use_max else forecast.temp_min_c
         return self._temp_prob(raw_temp, threshold_c, direction), True
+
+    @classmethod
+    def _snow_prob(cls, forecast: WeatherForecast) -> float:
+        """P(any snow during day) from Open-Meteo daily weather_code + precip_prob.
+
+        If the day's max weather_code is a snow code (71-77, 85-86), the
+        forecast expects precipitation to fall as snow, so P(snow) ≈ precip_prob.
+        Otherwise precipitation (if any) is rain/drizzle, so P(snow) ≈ 0.
+        """
+        if forecast.weather_code in cls._SNOW_WMO_CODES:
+            return forecast.precip_prob
+        return 0.0
 
     @staticmethod
     def _temp_prob(forecast_temp_c: float, threshold_c: float, direction: str, sigma: float = 3.0) -> float:

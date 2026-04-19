@@ -48,6 +48,7 @@ class WeatherForecast:
     temp_max_c: float
     temp_min_c: float
     conditions: str
+    weather_code: int = 0   # WMO code (71-77, 85-86 = snow)
 
 
 # WMO weather code → 短い説明
@@ -124,6 +125,7 @@ class WeatherClient:
             precip_prob=precip_prob,
             temp_max_c=temp_max, temp_min_c=temp_min,
             conditions=conditions,
+            weather_code=int(code),
         )
         self._cache[key] = result
         return result
