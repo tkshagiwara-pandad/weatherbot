@@ -10,6 +10,13 @@ logger = logging.getLogger(__name__)
 CLOB_URL = "https://clob.polymarket.com"
 GAMMA_URL = "https://gamma-api.polymarket.com"
 WEATHER_KEYWORDS = ["rain", "precipitation", "temperature", "snow", "storm", "weather", "humidity"]
+_WEATHER_KW_RE = re.compile(
+    # rain/snow: left-boundary only to catch rainfall, snowfall, etc.
+    # other keywords: full word boundary (they don't form compounds)
+    r"\brain\w*|\bsnow\w*"
+    r"|\b(?:precipitation|temperature|storm|weather|humidity)\b",
+    re.IGNORECASE,
+)
 
 # 略称 → Visual Crossing が認識する正式名
 CITY_ALIASES: dict[str, str] = {
@@ -103,7 +110,7 @@ class PolymarketClient:
 
             total_seen += len(page)
             for m in page:
-                if not any(kw in m.get("question", "").lower() for kw in WEATHER_KEYWORDS):
+                if not _WEATHER_KW_RE.search(m.get("question", "")):
                     continue
                 weather_seen += 1
                 # Use Gamma's pre-computed spread as a fast liquidity pre-filter
