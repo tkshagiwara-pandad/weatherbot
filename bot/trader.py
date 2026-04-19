@@ -27,6 +27,7 @@ class Trader:
         max_days_ahead: int = 5,
         notifier: TelegramNotifier = None,
         focus_cities: list = None,
+        watch_cities: list = None,
     ):
         self._weather = weather
         self._polymarket = polymarket
@@ -36,6 +37,7 @@ class Trader:
         self._max_days_ahead = max_days_ahead
         self._notifier = notifier
         self._focus_cities: set[str] = set(focus_cities) if focus_cities else set()
+        self._watch_cities: set[str] = set(watch_cities) if watch_cities else set()
 
     def scan_and_trade(self):
         logger.info("Scanning markets...")
@@ -159,6 +161,25 @@ class Trader:
                                 kind, edge, fp * 100, tgt_date, volume, question[:60])
         else:
             logger.info("No candidates evaluated (all markets filtered before edge check)")
+
+        if self._watch_cities and self._notifier and candidates:
+            watched = [
+                (abs_edge, edge, fp, is_temp, volume, question, tgt_date, tmax, tmin)
+                for abs_edge, edge, fp, is_temp, volume, question, tgt_date, tmax, tmin in candidates
+                if any(city.lower() in question.lower() for city in self._watch_cities)
+            ]
+            if watched:
+                lines = []
+                for _, edge, fp, is_temp, volume, question, tgt_date, tmax, tmin in watched[:5]:
+                    kind = "🌡" if is_temp else "🌧"
+                    lines.append(
+                        f"{kind} edge={edge:+.3f}  fp={fp:.0%}  vol=${volume:.0f}\n"
+                        f"   {question[:70]}\n"
+                        f"   forecast={tmax:.1f}°C/{tmin:.1f}°C  date={tgt_date}"
+                    )
+                self._notifier.send(
+                    "👀 <b>Watch city alert</b>\n\n" + "\n\n".join(lines)
+                )
 
         self._strategy.resolve_open_trades(self._polymarket)
         self._strategy.self_learn()
