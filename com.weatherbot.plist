@@ -8,7 +8,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/Users/hagiwaratakashi/weatherbot/.venv/bin/python</string>
-        <string>main.py</string>
+        <string>/Users/hagiwaratakashi/weatherbot/main.py</string>
         <string>--dry-run</string>
     </array>
 
