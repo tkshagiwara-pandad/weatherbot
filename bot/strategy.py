@@ -113,6 +113,21 @@ class Strategy:
         r"\s*(?:\d{4}\s*)?\??\s*$",
         re.IGNORECASE,
     )
+    # Binary daily rain/precip: must mention rain/precip AND have a specific date
+    _PRECIP_RAIN_RE = re.compile(r"\b(?:rain(?:fall)?|precipitation)\b", re.IGNORECASE)
+    _PRECIP_DATE_RE = re.compile(
+        r"\bon\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?"
+        r"|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+        r"\s+\d{1,2}\b",
+        re.IGNORECASE,
+    )
+    # Patterns that disqualify a precip market from binary daily rain model
+    _PRECIP_SKIP_RE = re.compile(
+        r"\b(?:snow(?:fall)?|blizzard|hurricane|typhoon|tornado|flood|drought"
+        r"|first|last|record|total|average|monthly|seasonal|season|annual)\b"
+        r"|\d+\s*(?:mm|cm|inch(?:es)?)\b",
+        re.IGNORECASE,
+    )
 
     @staticmethod
     def _parse_temp_market(question: str) -> Optional[tuple]:
@@ -166,16 +181,24 @@ class Strategy:
     def _forecast_prob(self, market: WeatherMarket, forecast: WeatherForecast) -> tuple[Optional[float], bool]:
         """Return (forecast_prob, is_temp_market).
 
-        Returns (None, True) when the question is a temperature market that
-        the model cannot evaluate (e.g. narrow 1°F/1°C bins, exact-value
-        markets).  Callers must treat None as "skip this market".
+        Returns (None, *) for any market the model cannot evaluate; callers
+        must treat None as "skip this market".  Only two types are modelled:
+          1. Directional / wide-range temperature markets → logistic(σ=3°C)
+          2. Binary daily rain/precip markets with a specific date → precip_prob
+        All other markets (snowfall events, amounts, monthly, exact temps, etc.)
+        return None and are silently skipped.
         """
         parsed = self._parse_temp_market(market.question)
         if parsed is None:
             q = market.question.lower()
             if any(kw in q for kw in self._TEMP_KEYWORDS):
-                return None, True   # temp market but unmodelable — do not fall through to precip
-            return forecast.precip_prob, False
+                return None, True   # temperature market but unmodelable
+            # Only accept binary daily rain/precip with a concrete date
+            if (self._PRECIP_RAIN_RE.search(market.question)
+                    and self._PRECIP_DATE_RE.search(market.question)
+                    and not self._PRECIP_SKIP_RE.search(market.question)):
+                return forecast.precip_prob, False
+            return None, False      # unrecognised market type — skip
 
         if parsed[0] == "range":
             _, lo_c, hi_c, use_max = parsed
