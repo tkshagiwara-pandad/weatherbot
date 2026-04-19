@@ -3,7 +3,7 @@
     "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
   ],
   "max_trade_usdc": 3.0,
-  "daily_limit_usdc": 50.0,
+  "daily_limit_usdc": 30.0,
   "min_edge": 0.05,
   "trade_amount_usdc": 3.0,
   "max_days_ahead": 5,
