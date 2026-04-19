@@ -10,5 +10,11 @@
   "scan_interval_minutes": 60,
   "trade_log": "trades.jsonl",
   "telegram_token": "8518180737:AAHQbm1NDk7KEwrGaHhfToRfRHpQxN0hsdk",
-  "telegram_chat_id": "8702410408"
+  "telegram_chat_id": "8702410408",
+  "focus_cities": [
+    "Tokyo", "Seoul", "Busan", "Shanghai", "Beijing", "Guangzhou",
+    "Shenzhen", "Wuhan", "Chongqing", "Chengdu", "Taipei", "Hong Kong",
+    "Singapore", "Bangkok", "Jakarta", "Kuala Lumpur", "Manila",
+    "Mumbai", "Lucknow", "Karachi", "Dubai", "Sydney", "Wellington"
+  ]
 }

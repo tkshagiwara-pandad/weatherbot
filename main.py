@@ -58,7 +58,8 @@ def main():
     notifier = TelegramNotifier(tg_token, tg_chat_id) if tg_token and tg_chat_id else None
 
     trader = Trader(weather, polymarket, strategy, signer, dry_run=args.dry_run,
-                    max_days_ahead=cfg.get("max_days_ahead", 5), notifier=notifier)
+                    max_days_ahead=cfg.get("max_days_ahead", 5), notifier=notifier,
+                    focus_cities=cfg.get("focus_cities"))
 
     interval = cfg.get("scan_interval_minutes", 60) * 60
     mode_label = " [DRY RUN - no orders will be placed]" if args.dry_run else ""

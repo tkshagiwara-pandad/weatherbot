@@ -1,4 +1,5 @@
 import logging
+import statistics
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional
@@ -8,6 +9,9 @@ import requests
 logger = logging.getLogger(__name__)
 
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+# JMA（気象庁）は東アジア高精度、ECMWF はグローバル高精度
+_ENSEMBLE_MODELS = ("jma_seamless", "ecmwf_ifs025")
 
 # Polymarket の天気マーケットは公式観測点（主に空港）で解決される。
 # 市街中心ではなく ICAO ステーション座標を使うことで解決値に近づける。
@@ -37,7 +41,6 @@ CITY_COORDS: dict[str, tuple[float, float]] = {
     "Mumbai":        (19.0896, 72.8656),    # VABB
     "Berlin":        (52.3667, 13.5033),    # EDDB
     "Toronto":       (43.6777, -79.6248),   # CYYZ
-    # Extended cities
     "Sao Paulo":     (-23.4356, -46.4731),  # SBGR
     "São Paulo":     (-23.4356, -46.4731),  # SBGR
     "Madrid":        (40.4936, -3.5668),    # LEMD
@@ -73,6 +76,7 @@ CITY_COORDS: dict[str, tuple[float, float]] = {
     "Karachi":       (24.9065, 67.1609),    # OPKC
     "Jeddah":        (21.6796, 39.1565),    # OEJN
     "Manila":        (14.5086, 121.0194),   # RPLL
+    "Bangkok":       (13.6811, 100.7473),   # VTBS
 }
 
 
@@ -85,6 +89,7 @@ class WeatherForecast:
     temp_min_c: float
     conditions: str
     weather_code: int = 0   # WMO code (71-77, 85-86 = snow)
+    temp_std_c: float = 0.0 # アンサンブルモデル間の標準偏差（不確実性の指標）
 
 
 # WMO weather code → 短い説明
@@ -103,10 +108,9 @@ _WMO_CODES: dict[int, str] = {
 
 
 class WeatherClient:
-    """Open-Meteo forecast client. 無料・APIキー不要・レート制限が緩い。"""
+    """Open-Meteo forecast client（JMA + ECMWF アンサンブル）。"""
 
     def __init__(self):
-        # None はフェッチ失敗（またはlat/lon未定義）を表す。同じキーは再試行しない。
         self._cache: dict[tuple[str, date], Optional[WeatherForecast]] = {}
 
     def prefetch(self, city_dates: set[tuple[str, date]]):
@@ -139,6 +143,7 @@ class WeatherClient:
                 "latitude": lat,
                 "longitude": lon,
                 "daily": "precipitation_probability_max,temperature_2m_max,temperature_2m_min,weather_code",
+                "models": ",".join(_ENSEMBLE_MODELS),
                 "start_date": date_str,
                 "end_date": date_str,
                 "timezone": "auto",
@@ -148,20 +153,38 @@ class WeatherClient:
         resp.raise_for_status()
         daily = resp.json().get("daily", {})
 
-        precip_prob = (daily.get("precipitation_probability_max", [0])[0] or 0) / 100.0
-        temp_max = daily.get("temperature_2m_max", [0.0])[0] or 0.0
-        temp_min = daily.get("temperature_2m_min", [0.0])[0] or 0.0
-        code = daily.get("weather_code", [0])[0] or 0
+        tmaxes, tmins, pps, wcs = [], [], [], []
+        for model in _ENSEMBLE_MODELS:
+            tmax = daily.get(f"temperature_2m_max_{model}", [None])[0]
+            tmin = daily.get(f"temperature_2m_min_{model}", [None])[0]
+            pp   = daily.get(f"precipitation_probability_max_{model}", [None])[0]
+            wc   = daily.get(f"weather_code_{model}", [None])[0]
+            if tmax is not None: tmaxes.append(float(tmax))
+            if tmin is not None: tmins.append(float(tmin))
+            if pp   is not None: pps.append(float(pp))
+            if wc   is not None: wcs.append(int(wc))
+
+        if not tmaxes:
+            logger.warning("No ensemble data for %s %s", city, date_str)
+            self._cache[key] = None
+            return None
+
+        temp_max  = statistics.mean(tmaxes)
+        temp_min  = statistics.mean(tmins) if tmins else temp_max - 8.0
+        temp_std  = statistics.pstdev(tmaxes) if len(tmaxes) > 1 else 0.0
+        precip_prob = max(pps) / 100.0 if pps else 0.0
+        code      = max(set(wcs), key=wcs.count) if wcs else 0
         conditions = _WMO_CODES.get(code, f"code_{code}")
 
-        logger.debug("Forecast %s %s: precip=%.0f%% conditions=%s",
-                     city, date_str, precip_prob * 100, conditions)
+        logger.debug("Forecast %s %s: tmax=%.1f±%.1f°C precip=%.0f%% %s",
+                     city, date_str, temp_max, temp_std, precip_prob * 100, conditions)
         result = WeatherForecast(
             city=city, forecast_date=target_date,
             precip_prob=precip_prob,
             temp_max_c=temp_max, temp_min_c=temp_min,
             conditions=conditions,
             weather_code=int(code),
+            temp_std_c=temp_std,
         )
         self._cache[key] = result
         return result

@@ -213,11 +213,22 @@ class Strategy:
         if parsed[0] == "range":
             _, lo_c, hi_c, use_max = parsed
             raw_temp = forecast.temp_max_c if use_max else forecast.temp_min_c
-            return self._temp_range_prob(raw_temp, lo_c, hi_c), True
+            sigma = self._ensemble_sigma(forecast.temp_std_c)
+            return self._temp_range_prob(raw_temp, lo_c, hi_c, sigma=sigma), True
 
         _, direction, threshold_c, use_max = parsed
         raw_temp = forecast.temp_max_c if use_max else forecast.temp_min_c
-        return self._temp_prob(raw_temp, threshold_c, direction), True
+        sigma = self._ensemble_sigma(forecast.temp_std_c)
+        return self._temp_prob(raw_temp, threshold_c, direction, sigma=sigma), True
+
+    @staticmethod
+    def _ensemble_sigma(temp_std_c: float) -> float:
+        """モデル間スプレッドから動的 sigma を計算。
+        モデルが一致 → sigma 小（確信度高）、不一致 → sigma 大（不確実）。
+        """
+        if temp_std_c > 0:
+            return min(6.0, max(2.0, temp_std_c * 2.0))
+        return 3.0  # フォールバック（アンサンブルなし）
 
     @classmethod
     def _snow_prob(cls, forecast: WeatherForecast) -> float:

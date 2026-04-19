@@ -26,6 +26,7 @@ class Trader:
         dry_run: bool = False,
         max_days_ahead: int = 5,
         notifier: TelegramNotifier = None,
+        focus_cities: list = None,
     ):
         self._weather = weather
         self._polymarket = polymarket
@@ -34,12 +35,13 @@ class Trader:
         self._dry_run = dry_run
         self._max_days_ahead = max_days_ahead
         self._notifier = notifier
+        self._focus_cities: set[str] = set(focus_cities) if focus_cities else set()
 
     def scan_and_trade(self):
         logger.info("Scanning markets...")
         markets = self._polymarket.get_weather_markets()
         traded = 0
-        skip_no_city = skip_date = skip_no_edge = skip_error = skip_no_liq = 0
+        skip_no_city = skip_focus = skip_date = skip_no_edge = skip_error = skip_no_liq = 0
 
         today = date.today()
 
@@ -47,6 +49,8 @@ class Trader:
         city_dates: set[tuple[str, date]] = set()
         for m in markets:
             if m.city and m.active:
+                if self._focus_cities and m.city not in self._focus_cities:
+                    continue
                 dt = self._parse_date(m.end_date)
                 if today < dt <= today + timedelta(days=self._max_days_ahead):
                     city_dates.add((m.city, dt))
@@ -58,6 +62,9 @@ class Trader:
         for market in markets:
             if not market.city or not market.active:
                 skip_no_city += 1
+                continue
+            if self._focus_cities and market.city not in self._focus_cities:
+                skip_focus += 1
                 continue
             try:
                 target_date = self._parse_date(market.end_date)
@@ -130,8 +137,8 @@ class Trader:
 
         mode = "[DRY RUN] " if self._dry_run else ""
         logger.info(
-            "%sDone: %d traded | skipped: no_city=%d date=%d no_edge=%d no_liq=%d error=%d | remaining=%.2f USDC",
-            mode, traded, skip_no_city, skip_date, skip_no_edge, skip_no_liq, skip_error,
+            "%sDone: %d traded | skipped: no_city=%d focus=%d date=%d no_edge=%d no_liq=%d error=%d | remaining=%.2f USDC",
+            mode, traded, skip_no_city, skip_focus, skip_date, skip_no_edge, skip_no_liq, skip_error,
             self._signer.daily_remaining(),
         )
 
