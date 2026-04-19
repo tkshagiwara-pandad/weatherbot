@@ -143,7 +143,7 @@ class WeatherClient:
                 "end_date": date_str,
                 "timezone": "auto",
             },
-            timeout=10,
+            timeout=20,
         )
         resp.raise_for_status()
         daily = resp.json().get("daily", {})
