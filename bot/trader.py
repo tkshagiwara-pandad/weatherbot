@@ -37,7 +37,6 @@ class Trader:
         markets = self._polymarket.get_weather_markets()
         traded = 0
         skip_no_city = skip_date = skip_no_edge = skip_error = skip_no_liq = 0
-        no_city_samples: list[str] = []
 
         today = date.today()
 
@@ -56,8 +55,6 @@ class Trader:
         for market in markets:
             if not market.city or not market.active:
                 skip_no_city += 1
-                if len(no_city_samples) < 200:
-                    no_city_samples.append(market.question)
                 continue
             try:
                 target_date = self._parse_date(market.end_date)
@@ -153,9 +150,6 @@ class Trader:
         else:
             logger.info("No candidates evaluated (all markets filtered before edge check)")
 
-        if no_city_samples:
-            self._log_no_city_summary(no_city_samples)
-
         self._strategy.resolve_open_trades(self._polymarket)
         self._strategy.self_learn()
 
@@ -208,32 +202,6 @@ class Trader:
             signal.market.question[:60],
         )
         self._strategy.log_trade(signal, amount)
-
-    @staticmethod
-    def _log_no_city_summary(questions: list[str]):
-        """Extract and count unrecognized location tokens from no_city questions."""
-        import re
-        from collections import Counter
-        # Pull capitalized words/phrases that look like place names
-        token_re = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b')
-        # Words to ignore (common question words, weather terms)
-        stopwords = {
-            "Will", "The", "Is", "Are", "Does", "Did", "Has", "Have",
-            "What", "How", "When", "Where", "Which",
-            "Rain", "Snow", "Temperature", "Weather", "Precipitation",
-            "High", "Low", "Above", "Below", "Or", "And", "On", "In", "At",
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December",
-            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
-        }
-        counter: Counter = Counter()
-        for q in questions:
-            for tok in token_re.findall(q):
-                if tok not in stopwords and len(tok) > 2:
-                    counter[tok] += 1
-        logger.info("no_city token frequency (top 40):")
-        for token, count in counter.most_common(40):
-            logger.info("  %4d  %s", count, token)
 
     @staticmethod
     def _parse_date(end_date_iso: str) -> date:
