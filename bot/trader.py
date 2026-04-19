@@ -34,7 +34,7 @@ class Trader:
         logger.info("Scanning markets...")
         markets = self._polymarket.get_weather_markets()
         traded = 0
-        skip_no_city = skip_date = skip_low_vol = skip_no_edge = skip_error = skip_no_liq = 0
+        skip_no_city = skip_date = skip_no_edge = skip_error = skip_no_liq = 0
 
         today = date.today()
 
@@ -59,9 +59,6 @@ class Trader:
                 # 当日・過去 or 14日超先のマーケットはスキップ（予報精度外 / 当日は市場がリアルタイムデータを反映）
                 if target_date <= today or target_date > today + timedelta(days=14):
                     skip_date += 1
-                    continue
-                if market.volume < self._strategy._min_volume:
-                    skip_low_vol += 1
                     continue
                 forecast = self._weather.get_forecast(market.city, target_date)
                 if forecast is None:
@@ -120,8 +117,8 @@ class Trader:
 
         mode = "[DRY RUN] " if self._dry_run else ""
         logger.info(
-            "%sDone: %d traded | skipped: no_city=%d date=%d low_vol=%d no_edge=%d no_liq=%d error=%d | remaining=%.2f USDC",
-            mode, traded, skip_no_city, skip_date, skip_low_vol, skip_no_edge, skip_no_liq, skip_error,
+            "%sDone: %d traded | skipped: no_city=%d date=%d no_edge=%d no_liq=%d error=%d | remaining=%.2f USDC",
+            mode, traded, skip_no_city, skip_date, skip_no_edge, skip_no_liq, skip_error,
             self._signer.daily_remaining(),
         )
 

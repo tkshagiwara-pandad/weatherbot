@@ -41,17 +41,15 @@ class Strategy:
         self,
         min_edge: float = 0.08,
         trade_amount_usdc: float = 10.0,
-        min_volume_usdc: float = 1000.0,
         log_path: str = "trades.jsonl",
     ):
         self._min_edge = min_edge
         self._trade_amount = trade_amount_usdc
-        self._min_volume = min_volume_usdc
         self._log_path = log_path
         self._edge_adjustment = 0.0     # raised when win-rate is low
 
     def evaluate(self, market: WeatherMarket, forecast: WeatherForecast) -> Optional[TradeSignal]:
-        if market.volume < self._min_volume or not market.active:
+        if not market.active:
             return None
         if self._MONTHLY_RE.search(market.question):
             return None

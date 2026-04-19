@@ -50,7 +50,6 @@ def main():
     strategy = Strategy(
         min_edge=cfg["min_edge"],
         trade_amount_usdc=cfg["trade_amount_usdc"],
-        min_volume_usdc=cfg["min_volume_usdc"],
         log_path=cfg.get("trade_log", "trades.jsonl"),
     )
     trader = Trader(weather, polymarket, strategy, signer, dry_run=args.dry_run)
