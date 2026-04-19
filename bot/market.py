@@ -8,6 +8,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 CLOB_URL = "https://clob.polymarket.com"
+GAMMA_URL = "https://gamma-api.polymarket.com"
 WEATHER_KEYWORDS = ["rain", "precipitation", "temperature", "snow", "storm", "weather", "humidity"]
 
 # 略称 → Visual Crossing が認識する正式名
@@ -73,34 +74,45 @@ class BookQuote:
 
 
 class PolymarketClient:
-    def __init__(self):
+    def __init__(self, min_volume_24h: float = 50.0):
         self._session = requests.Session()
         self._session.headers["User-Agent"] = "weatherbot/1.0"
+        self._min_volume_24h = min_volume_24h
 
     def get_weather_markets(self) -> list[WeatherMarket]:
+        """Fetch active weather markets from Gamma API, filtered by 24h volume."""
         markets: list[WeatherMarket] = []
-        cursor: Optional[str] = None
+        limit = 100
+        offset = 0
 
         while True:
-            params: dict = {"limit": 100, "active": "true", "closed": "false"}
-            if cursor:
-                params["next_cursor"] = cursor
-
-            resp = self._session.get(f"{CLOB_URL}/markets", params=params, timeout=15)
+            resp = self._session.get(
+                f"{GAMMA_URL}/markets",
+                params={"active": "true", "closed": "false", "limit": limit, "offset": offset},
+                timeout=15,
+            )
             resp.raise_for_status()
-            data = resp.json()
-
-            for m in data.get("data", []):
-                if any(kw in m.get("question", "").lower() for kw in WEATHER_KEYWORDS):
-                    parsed = self._parse_market(m)
-                    if parsed:
-                        markets.append(parsed)
-
-            cursor = data.get("next_cursor")
-            if not cursor or cursor == "LTE=":
+            page: list = resp.json()
+            if not page:
                 break
 
-        logger.info("Found %d weather markets", len(markets))
+            for m in page:
+                if not any(kw in m.get("question", "").lower() for kw in WEATHER_KEYWORDS):
+                    continue
+                if float(m.get("volume24hr") or 0) < self._min_volume_24h:
+                    continue
+                parsed = self._parse_gamma_market(m)
+                if parsed:
+                    markets.append(parsed)
+
+            if len(page) < limit:
+                break
+            offset += limit
+
+        logger.info(
+            "Found %d weather markets (Gamma API, vol24h≥$%.0f)",
+            len(markets), self._min_volume_24h,
+        )
         return markets
 
     def get_best_ask(self, token_id: str) -> Optional[float]:
@@ -145,6 +157,28 @@ class PolymarketClient:
             return None
 
     # ------------------------------------------------------------------
+    def _parse_gamma_market(self, m: dict) -> Optional[WeatherMarket]:
+        try:
+            tokens = m.get("tokens", [])
+            if len(tokens) < 2:
+                return None
+            yes = next((t for t in tokens if t.get("outcome") == "Yes"), tokens[0])
+            no = next((t for t in tokens if t.get("outcome") == "No"), tokens[1])
+            return WeatherMarket(
+                market_id=m["conditionId"],
+                question=m.get("question", ""),
+                yes_token_id=yes["token_id"],
+                no_token_id=no["token_id"],
+                yes_price=float(yes.get("price", 0.5)),
+                no_price=float(no.get("price", 0.5)),
+                city=self._extract_city(m.get("question", "")),
+                end_date=m.get("endDate", ""),
+                volume=float(m.get("volume24hr") or 0),
+                active=bool(m.get("active", False)),
+            )
+        except (KeyError, ValueError, TypeError):
+            return None
+
     def _parse_market(self, m: dict) -> Optional[WeatherMarket]:
         try:
             tokens = m.get("tokens", [])
