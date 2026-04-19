@@ -43,7 +43,7 @@ class Trader:
         for m in markets:
             if m.city and m.active:
                 dt = self._parse_date(m.end_date)
-                if today <= dt <= today + timedelta(days=14):
+                if today < dt <= today + timedelta(days=14):
                     city_dates.add((m.city, dt))
         self._weather.prefetch(city_dates)
 
@@ -56,8 +56,8 @@ class Trader:
                 continue
             try:
                 target_date = self._parse_date(market.end_date)
-                # 過去 or 14日超先のマーケットはスキップ（予報精度外）
-                if target_date < today or target_date > today + timedelta(days=14):
+                # 当日・過去 or 14日超先のマーケットはスキップ（予報精度外 / 当日は市場がリアルタイムデータを反映）
+                if target_date <= today or target_date > today + timedelta(days=14):
                     skip_date += 1
                     continue
                 if market.volume < self._strategy._min_volume:
@@ -67,7 +67,11 @@ class Trader:
                 if forecast is None:
                     skip_error += 1
                     continue
-                fp, edge, is_temp = self._strategy.top_candidates(market, forecast)
+                result = self._strategy.top_candidates(market, forecast)
+                if result is None:
+                    skip_no_edge += 1
+                    continue
+                fp, edge, is_temp = result
                 candidates.append((abs(edge), edge, fp, is_temp, market.volume, market.question))
                 if abs(edge) >= (self._strategy._min_edge + self._strategy._edge_adjustment):
                     signal = self._strategy.evaluate(market, forecast)

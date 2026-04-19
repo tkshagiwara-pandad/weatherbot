@@ -53,6 +53,8 @@ class Strategy:
     def evaluate(self, market: WeatherMarket, forecast: WeatherForecast) -> Optional[TradeSignal]:
         if market.volume < self._min_volume or not market.active:
             return None
+        if self._MONTHLY_RE.search(market.question):
+            return None
 
         forecast_prob, _ = self._forecast_prob(market, forecast)
         edge = forecast_prob - market.yes_price
@@ -76,7 +78,10 @@ class Strategy:
         market: WeatherMarket,
         forecast: WeatherForecast,
     ) -> Optional[tuple[float, float, bool]]:
-        """Return (forecast_prob, edge, is_temp) — volume check done by caller."""
+        """Return (forecast_prob, edge, is_temp) — volume check done by caller.
+        Returns None for market types the model cannot evaluate."""
+        if self._MONTHLY_RE.search(market.question):
+            return None
         forecast_prob, is_temp = self._forecast_prob(market, forecast)
         edge = forecast_prob - market.yes_price
         return forecast_prob, edge, is_temp
@@ -97,6 +102,13 @@ class Strategy:
     )
     # Single threshold: "80°F", "30.5°C", "75 degrees F"
     _TEMP_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:°\s*|degrees?\s+)([FC])\b", re.IGNORECASE)
+    # Monthly accumulation market: ends with "in April", "in March 2026", etc.
+    _MONTHLY_RE = re.compile(
+        r"\bin\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?"
+        r"|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+        r"\s*(?:\d{4}\s*)?\??\s*$",
+        re.IGNORECASE,
+    )
 
     @staticmethod
     def _parse_temp_market(question: str) -> Optional[tuple]:
@@ -116,14 +128,20 @@ class Strategy:
         if m:
             v1, unit, v2 = float(m.group(1)), m.group(2).upper(), float(m.group(3))
             f = lambda v: (v - 32) * 5 / 9 if unit == "F" else v
-            return ("range", f(v1), f(v2), use_max)
+            lo_c, hi_c = f(v1), f(v2)
+            if hi_c - lo_c < 1.5:
+                return None  # too narrow for logistic model (σ=3°C)
+            return ("range", lo_c, hi_c, use_max)
 
         # Range: "between 59-60°F"
         m = Strategy._TEMP_RANGE_DASH.search(question)
         if m:
             v1, v2, unit = float(m.group(1)), float(m.group(2)), m.group(3).upper()
             f = lambda v: (v - 32) * 5 / 9 if unit == "F" else v
-            return ("range", f(v1), f(v2), use_max)
+            lo_c, hi_c = f(v1), f(v2)
+            if hi_c - lo_c < 1.5:
+                return None  # too narrow for logistic model (σ=3°C)
+            return ("range", lo_c, hi_c, use_max)
 
         # Directional or exact temperature
         m = Strategy._TEMP_RE.search(question)
@@ -136,9 +154,8 @@ class Strategy:
             return ("dir", "below", threshold_c, use_max)
         if re.search(r"\b(higher|exceed|above|over)\b|or more|at least", q):
             return ("dir", "above", threshold_c, use_max)
-        # No directional word → exact temperature ("be 23°C") → 1-degree range
-        delta_c = 5 / 9 if unit == "F" else 1.0
-        return ("range", threshold_c, threshold_c + delta_c, use_max)
+        # No directional word → exact single-degree market; too narrow to model
+        return None
 
     def _forecast_prob(self, market: WeatherMarket, forecast: WeatherForecast) -> tuple[float, bool]:
         """Return (forecast_prob, is_temp_market)."""
