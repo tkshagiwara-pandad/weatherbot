@@ -8,5 +8,7 @@
   "trade_amount_usdc": 3.0,
   "max_days_ahead": 5,
   "scan_interval_minutes": 60,
-  "trade_log": "trades.jsonl"
+  "trade_log": "trades.jsonl",
+  "telegram_token": "8518180737:AAHQbm1NDk7KEwrGaHhfToRfRHpQxN0hsdk",
+  "telegram_chat_id": "8702410408"
 }

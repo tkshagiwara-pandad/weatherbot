@@ -34,6 +34,7 @@ def main():
 
     # Imports are here so env vars are loaded before any web3 init
     from bot.market import PolymarketClient
+    from bot.notifier import TelegramNotifier
     from bot.strategy import Strategy
     from bot.trader import Trader
     from bot.weather import WeatherClient
@@ -52,8 +53,12 @@ def main():
         trade_amount_usdc=cfg["trade_amount_usdc"],
         log_path=cfg.get("trade_log", "trades.jsonl"),
     )
+    tg_token = cfg.get("telegram_token")
+    tg_chat_id = cfg.get("telegram_chat_id")
+    notifier = TelegramNotifier(tg_token, tg_chat_id) if tg_token and tg_chat_id else None
+
     trader = Trader(weather, polymarket, strategy, signer, dry_run=args.dry_run,
-                    max_days_ahead=cfg.get("max_days_ahead", 5))
+                    max_days_ahead=cfg.get("max_days_ahead", 5), notifier=notifier)
 
     interval = cfg.get("scan_interval_minutes", 60) * 60
     mode_label = " [DRY RUN - no orders will be placed]" if args.dry_run else ""
@@ -61,6 +66,12 @@ def main():
         "Bot started%s | address=%s | scan every %d min",
         mode_label, signer.address, interval // 60,
     )
+    if notifier:
+        notifier.send(
+            f"🤖 <b>Bot started</b>{'  [DRY RUN]' if args.dry_run else ''}\n"
+            f"Address: <code>{signer.address}</code>\n"
+            f"Scan every {interval // 60} min  |  Daily limit: {cfg['daily_limit_usdc']} USDC"
+        )
 
     while True:
         try:

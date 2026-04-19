@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 import requests
 
 from bot.market import CLOB_URL, BookQuote, PolymarketClient, WeatherMarket
+from bot.notifier import TelegramNotifier
 from bot.strategy import Strategy, TradeSignal
 from bot.weather import WeatherClient
 from signer.signer import SecurityError, SigningService, TradeRequest
@@ -24,6 +25,7 @@ class Trader:
         signer: SigningService,
         dry_run: bool = False,
         max_days_ahead: int = 5,
+        notifier: TelegramNotifier = None,
     ):
         self._weather = weather
         self._polymarket = polymarket
@@ -31,6 +33,7 @@ class Trader:
         self._signer = signer
         self._dry_run = dry_run
         self._max_days_ahead = max_days_ahead
+        self._notifier = notifier
 
     def scan_and_trade(self):
         logger.info("Scanning markets...")
@@ -159,6 +162,8 @@ class Trader:
         amount = min(self._strategy._trade_amount, remaining)
         if amount < 1.0:
             logger.info("Daily limit reached, stopping trades")
+            if self._notifier:
+                self._notifier.send("⚠️ デイリーリミット到達 — 本日の取引を停止しました")
             return
 
         if self._dry_run:
@@ -202,6 +207,14 @@ class Trader:
             signal.market.question[:60],
         )
         self._strategy.log_trade(signal, amount)
+        if self._notifier:
+            self._notifier.send(
+                f"✅ <b>Order placed</b>\n"
+                f"Side: {signal.side.upper()}  Amount: {amount:.2f} USDC\n"
+                f"Ask: {signal.market_price:.3f}  Edge: {signal.edge:+.3f}\n"
+                f"fp: {signal.forecast_prob:.0%}\n"
+                f"{signal.market.question[:80]}"
+            )
 
     @staticmethod
     def _parse_date(end_date_iso: str) -> date:
