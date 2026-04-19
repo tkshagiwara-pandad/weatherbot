@@ -79,6 +79,16 @@ KNOWN_CITIES: set[str] = {
     "Shenzhen",
     "Chengdu",
     "Busan",
+    "Helsinki",
+    "Lagos",
+    "Kuala Lumpur",
+    "Cape Town",
+    "Panama City",
+    "Jakarta",
+    "Guangzhou",
+    "Karachi",
+    "Jeddah",
+    "Manila",
 }
 
 

@@ -63,6 +63,16 @@ CITY_COORDS: dict[str, tuple[float, float]] = {
     "Shenzhen":      (22.6393, 113.8107),   # ZGSZ
     "Chengdu":       (30.5785, 103.9472),   # ZUUU
     "Busan":         (35.1795, 128.9382),   # RKPK
+    "Helsinki":      (60.3172, 24.9633),    # EFHK
+    "Lagos":         (6.5774, 3.3215),      # DNMM
+    "Kuala Lumpur":  (2.7456, 101.7099),    # WMKK
+    "Cape Town":     (-33.9648, 18.6017),   # FACT
+    "Panama City":   (9.0714, -79.3835),    # MPTO
+    "Jakarta":       (-6.1275, 106.6537),   # WIHH
+    "Guangzhou":     (23.3924, 113.2990),   # ZGGG
+    "Karachi":       (24.9065, 67.1609),    # OPKC
+    "Jeddah":        (21.6796, 39.1565),    # OEJN
+    "Manila":        (14.5086, 121.0194),   # RPLL
 }
 
 
