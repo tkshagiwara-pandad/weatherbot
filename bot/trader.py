@@ -89,6 +89,11 @@ class Trader:
                             logger.debug("Thin ask (%.2f USDC): %s", quote.ask_size * quote.best_ask, market.question[:60])
                             skip_no_liq += 1
                             continue
+                        # Require two-sided book with tight spread
+                        if quote.best_bid is None or (quote.best_ask - quote.best_bid) > 0.20:
+                            logger.debug("Wide/one-sided spread (%.2f): %s", (quote.best_ask - (quote.best_bid or 0)), market.question[:60])
+                            skip_no_liq += 1
+                            continue
                         # Recompute edge against real ask price (must be strictly positive)
                         real_edge = (
                             signal.forecast_prob - quote.best_ask
