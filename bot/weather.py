@@ -37,6 +37,32 @@ CITY_COORDS: dict[str, tuple[float, float]] = {
     "Mumbai":        (19.0896, 72.8656),    # VABB
     "Berlin":        (52.3667, 13.5033),    # EDDB
     "Toronto":       (43.6777, -79.6248),   # CYYZ
+    # Extended cities
+    "Sao Paulo":     (-23.4356, -46.4731),  # SBGR
+    "São Paulo":     (-23.4356, -46.4731),  # SBGR
+    "Madrid":        (40.4936, -3.5668),    # LEMD
+    "Austin":        (30.1945, -97.6699),   # KAUS
+    "Seoul":         (37.5583, 126.7906),   # RKSS (Gimpo)
+    "Lucknow":       (26.7606, 80.8893),    # VILK
+    "Warsaw":        (52.1657, 20.9671),    # EPWA
+    "Mexico City":   (19.4363, -99.0721),   # MMMX
+    "Buenos Aires":  (-34.8222, -58.5358),  # SAEZ
+    "Ankara":        (40.1281, 32.9951),    # LTAC
+    "Munich":        (48.3537, 11.7750),    # EDDM
+    "Shanghai":      (31.1443, 121.8083),   # ZSPD
+    "Milan":         (45.4455, 9.2768),     # LIML
+    "Beijing":       (40.0799, 116.5849),   # ZBAA
+    "Amsterdam":     (52.3086, 4.7639),     # EHAM
+    "Wellington":    (-41.3272, 174.8050),  # NZWN
+    "Taipei":        (25.0777, 121.2328),   # RCTP
+    "Wuhan":         (30.7838, 114.2081),   # ZHHH
+    "Moscow":        (55.9726, 37.4146),    # UUEE
+    "Istanbul":      (41.2761, 28.7519),    # LTFM
+    "Tel Aviv":      (32.0114, 34.8867),    # LLBG
+    "Chongqing":     (29.7192, 106.6419),   # ZUCK
+    "Shenzhen":      (22.6393, 113.8107),   # ZGSZ
+    "Chengdu":       (30.5785, 103.9472),   # ZUUU
+    "Busan":         (35.1795, 128.9382),   # RKPK
 }
 
 
