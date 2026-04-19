@@ -80,7 +80,7 @@ class PolymarketClient:
         self._min_volume_24h = min_volume_24h
 
     def get_weather_markets(self) -> list[WeatherMarket]:
-        """Fetch active weather markets from Gamma API, filtered by 24h volume."""
+        """Fetch active weather markets from Gamma API, filtered by liquidity."""
         markets: list[WeatherMarket] = []
         limit = 100
         offset = 0
@@ -88,7 +88,13 @@ class PolymarketClient:
         while True:
             resp = self._session.get(
                 f"{GAMMA_URL}/markets",
-                params={"active": "true", "closed": "false", "limit": limit, "offset": offset},
+                params={
+                    "active": "true",
+                    "closed": "false",
+                    "tag": "weather",
+                    "limit": limit,
+                    "offset": offset,
+                },
                 timeout=15,
             )
             resp.raise_for_status()
@@ -107,13 +113,16 @@ class PolymarketClient:
                 sample = page[0] if page else {}
                 logger.info(
                     "Gamma API first page: %d markets | sample keys: %s | sample question: %s",
-                    len(page), list(sample.keys())[:12], sample.get("question", "")[:60],
+                    len(page), list(sample.keys()), sample.get("question", "")[:80],
                 )
+                logger.info("Gamma API sample outcomes: %s | liquidity: %s",
+                            sample.get("outcomes"), sample.get("liquidity"))
 
             for m in page:
                 if not any(kw in m.get("question", "").lower() for kw in WEATHER_KEYWORDS):
                     continue
-                if float(m.get("volume24hr") or 0) < self._min_volume_24h:
+                liq = float(m.get("liquidity") or m.get("volume24hr") or 0)
+                if liq < self._min_volume_24h:
                     continue
                 parsed = self._parse_gamma_market(m)
                 if parsed:
@@ -172,25 +181,54 @@ class PolymarketClient:
 
     # ------------------------------------------------------------------
     def _parse_gamma_market(self, m: dict) -> Optional[WeatherMarket]:
+        import json as _json
         try:
-            tokens = m.get("tokens", [])
-            if len(tokens) < 2:
+            # Token IDs: Gamma API encodes them as a JSON string or list
+            raw_ids = m.get("clobTokenIds") or m.get("tokens", [])
+            if isinstance(raw_ids, str):
+                token_ids: list = _json.loads(raw_ids)
+            elif isinstance(raw_ids, list) and raw_ids and isinstance(raw_ids[0], dict):
+                # CLOB-style: [{"token_id": ..., "outcome": ...}, ...]
+                yes_t = next((t for t in raw_ids if t.get("outcome") == "Yes"), raw_ids[0])
+                no_t  = next((t for t in raw_ids if t.get("outcome") == "No"),  raw_ids[1])
+                return WeatherMarket(
+                    market_id=m["conditionId"],
+                    question=m.get("question", ""),
+                    yes_token_id=yes_t["token_id"],
+                    no_token_id=no_t["token_id"],
+                    yes_price=float(yes_t.get("price", 0.5)),
+                    no_price=float(no_t.get("price", 0.5)),
+                    city=self._extract_city(m.get("question", "")),
+                    end_date=m.get("endDate", ""),
+                    volume=float(m.get("liquidity") or m.get("volume24hr") or 0),
+                    active=bool(m.get("active", False)),
+                )
+            else:
+                token_ids = list(raw_ids)
+
+            if len(token_ids) < 2:
                 return None
-            yes = next((t for t in tokens if t.get("outcome") == "Yes"), tokens[0])
-            no = next((t for t in tokens if t.get("outcome") == "No"), tokens[1])
+
+            # Prices: Gamma API encodes as JSON string or list of strings
+            raw_prices = m.get("outcomePrices", ["0.5", "0.5"])
+            if isinstance(raw_prices, str):
+                prices: list = _json.loads(raw_prices)
+            else:
+                prices = list(raw_prices)
+
             return WeatherMarket(
                 market_id=m["conditionId"],
                 question=m.get("question", ""),
-                yes_token_id=yes["token_id"],
-                no_token_id=no["token_id"],
-                yes_price=float(yes.get("price", 0.5)),
-                no_price=float(no.get("price", 0.5)),
+                yes_token_id=str(token_ids[0]),
+                no_token_id=str(token_ids[1]),
+                yes_price=float(prices[0]) if prices else 0.5,
+                no_price=float(prices[1]) if len(prices) > 1 else 0.5,
                 city=self._extract_city(m.get("question", "")),
                 end_date=m.get("endDate", ""),
-                volume=float(m.get("volume24hr") or 0),
+                volume=float(m.get("liquidity") or m.get("volume24hr") or 0),
                 active=bool(m.get("active", False)),
             )
-        except (KeyError, ValueError, TypeError):
+        except (KeyError, ValueError, TypeError, _json.JSONDecodeError):
             return None
 
     def _parse_market(self, m: dict) -> Optional[WeatherMarket]:
