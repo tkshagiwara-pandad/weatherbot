@@ -80,17 +80,22 @@ class Trader:
                         )
                         quote = self._polymarket.get_book_quote(token_id)
                         if quote is None or quote.best_ask is None:
-                            logger.debug("No ask liquidity: %s", market.question[:60])
+                            logger.info("SKIP no_ask  mid=%.0f%%  %s",
+                                        market.yes_price * 100, market.question[:70])
                             skip_no_liq += 1
                             continue
                         # Require at least $1 of ask-side depth to avoid ghost quotes
                         if quote.ask_size * quote.best_ask < 1.0:
-                            logger.debug("Thin ask (%.2f USDC): %s", quote.ask_size * quote.best_ask, market.question[:60])
+                            logger.info("SKIP thin_ask  depth=%.2f USDC  ask=%.0f%%  %s",
+                                        quote.ask_size * quote.best_ask, quote.best_ask * 100, market.question[:70])
                             skip_no_liq += 1
                             continue
                         # Require two-sided book with tight spread
-                        if quote.best_bid is None or (quote.best_ask - quote.best_bid) > 0.20:
-                            logger.debug("Wide/one-sided spread (%.2f): %s", (quote.best_ask - (quote.best_bid or 0)), market.question[:60])
+                        spread_rt = (quote.best_ask - (quote.best_bid or 0))
+                        if quote.best_bid is None or spread_rt > 0.20:
+                            logger.info("SKIP wide_spread  bid=%.0f%%  ask=%.0f%%  spread=%.0f%%  %s",
+                                        (quote.best_bid or 0) * 100, quote.best_ask * 100,
+                                        spread_rt * 100, market.question[:70])
                             skip_no_liq += 1
                             continue
                         # Recompute edge against real ask price (must be strictly positive)
@@ -100,6 +105,9 @@ class Trader:
                             else (1.0 - signal.forecast_prob) - quote.best_ask
                         )
                         if real_edge < (self._strategy._min_edge + self._strategy._edge_adjustment):
+                            logger.info("SKIP low_edge  side=%s  fp=%.0f%%  ask=%.0f%%  real_edge=%+.3f  mid_edge=%+.3f  %s",
+                                        signal.side, signal.forecast_prob * 100, quote.best_ask * 100,
+                                        real_edge, edge, market.question[:60])
                             skip_no_edge += 1
                             continue
                         signal.market_price = quote.best_ask
