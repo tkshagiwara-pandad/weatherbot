@@ -46,7 +46,7 @@ def main():
         daily_limit_usdc=cfg["daily_limit_usdc"],
     )
     weather = WeatherClient()
-    polymarket = PolymarketClient(min_volume_24h=cfg.get("gamma_min_volume_24h", 50.0))
+    polymarket = PolymarketClient(max_spread=cfg.get("gamma_max_spread", 0.20))
     strategy = Strategy(
         min_edge=cfg["min_edge"],
         trade_amount_usdc=cfg["trade_amount_usdc"],

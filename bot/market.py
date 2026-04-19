@@ -74,55 +74,41 @@ class BookQuote:
 
 
 class PolymarketClient:
-    def __init__(self, min_volume_24h: float = 50.0):
+    def __init__(self, max_spread: float = 0.20):
         self._session = requests.Session()
         self._session.headers["User-Agent"] = "weatherbot/1.0"
-        self._min_volume_24h = min_volume_24h
+        self._max_spread = max_spread
 
     def get_weather_markets(self) -> list[WeatherMarket]:
-        """Fetch active weather markets from Gamma API, filtered by liquidity."""
+        """Fetch active weather markets from Gamma API.
+
+        Pre-filters using Gamma's spread field to avoid calling /book for
+        illiquid markets (spread ≥ 1.0 = ghost book).
+        """
         markets: list[WeatherMarket] = []
+        total_seen = weather_seen = 0
         limit = 100
         offset = 0
 
         while True:
             resp = self._session.get(
                 f"{GAMMA_URL}/markets",
-                params={
-                    "active": "true",
-                    "closed": "false",
-                    "tag": "weather",
-                    "limit": limit,
-                    "offset": offset,
-                },
+                params={"active": "true", "closed": "false", "limit": limit, "offset": offset},
                 timeout=15,
             )
             resp.raise_for_status()
-            raw = resp.json()
-
-            # Gamma API may wrap results; normalise to a list
-            if isinstance(raw, dict):
-                page = raw.get("data", raw.get("markets", raw.get("results", [])))
-            else:
-                page = raw
-
-            if not page:
+            page: list = resp.json()
+            if not isinstance(page, list) or not page:
                 break
 
-            if offset == 0:
-                sample = page[0] if page else {}
-                logger.info(
-                    "Gamma API first page: %d markets | sample keys: %s | sample question: %s",
-                    len(page), list(sample.keys()), sample.get("question", "")[:80],
-                )
-                logger.info("Gamma API sample outcomes: %s | liquidity: %s",
-                            sample.get("outcomes"), sample.get("liquidity"))
-
+            total_seen += len(page)
             for m in page:
                 if not any(kw in m.get("question", "").lower() for kw in WEATHER_KEYWORDS):
                     continue
-                liq = float(m.get("liquidity") or m.get("volume24hr") or 0)
-                if liq < self._min_volume_24h:
+                weather_seen += 1
+                # Use Gamma's pre-computed spread as a fast liquidity pre-filter
+                spread = float(m.get("spread") or 1.0)
+                if spread > self._max_spread:
                     continue
                 parsed = self._parse_gamma_market(m)
                 if parsed:
@@ -133,8 +119,8 @@ class PolymarketClient:
             offset += limit
 
         logger.info(
-            "Found %d weather markets (Gamma API, vol24h≥$%.0f)",
-            len(markets), self._min_volume_24h,
+            "Found %d liquid weather markets (spread≤%.0f%%) from %d weather / %d total",
+            len(markets), self._max_spread * 100, weather_seen, total_seen,
         )
         return markets
 
@@ -180,42 +166,20 @@ class PolymarketClient:
             return None
 
     # ------------------------------------------------------------------
-    def _parse_gamma_market(self, m: dict) -> Optional[WeatherMarket]:
+    @staticmethod
+    def _load_json_field(value) -> list:
+        """Gamma API encodes some list fields as JSON strings; normalise to list."""
         import json as _json
-        try:
-            # Token IDs: Gamma API encodes them as a JSON string or list
-            raw_ids = m.get("clobTokenIds") or m.get("tokens", [])
-            if isinstance(raw_ids, str):
-                token_ids: list = _json.loads(raw_ids)
-            elif isinstance(raw_ids, list) and raw_ids and isinstance(raw_ids[0], dict):
-                # CLOB-style: [{"token_id": ..., "outcome": ...}, ...]
-                yes_t = next((t for t in raw_ids if t.get("outcome") == "Yes"), raw_ids[0])
-                no_t  = next((t for t in raw_ids if t.get("outcome") == "No"),  raw_ids[1])
-                return WeatherMarket(
-                    market_id=m["conditionId"],
-                    question=m.get("question", ""),
-                    yes_token_id=yes_t["token_id"],
-                    no_token_id=no_t["token_id"],
-                    yes_price=float(yes_t.get("price", 0.5)),
-                    no_price=float(no_t.get("price", 0.5)),
-                    city=self._extract_city(m.get("question", "")),
-                    end_date=m.get("endDate", ""),
-                    volume=float(m.get("liquidity") or m.get("volume24hr") or 0),
-                    active=bool(m.get("active", False)),
-                )
-            else:
-                token_ids = list(raw_ids)
+        if isinstance(value, str):
+            return _json.loads(value)
+        return list(value) if value else []
 
+    def _parse_gamma_market(self, m: dict) -> Optional[WeatherMarket]:
+        try:
+            token_ids = self._load_json_field(m.get("clobTokenIds") or [])
             if len(token_ids) < 2:
                 return None
-
-            # Prices: Gamma API encodes as JSON string or list of strings
-            raw_prices = m.get("outcomePrices", ["0.5", "0.5"])
-            if isinstance(raw_prices, str):
-                prices: list = _json.loads(raw_prices)
-            else:
-                prices = list(raw_prices)
-
+            prices = self._load_json_field(m.get("outcomePrices") or ["0.5", "0.5"])
             return WeatherMarket(
                 market_id=m["conditionId"],
                 question=m.get("question", ""),
@@ -224,11 +188,11 @@ class PolymarketClient:
                 yes_price=float(prices[0]) if prices else 0.5,
                 no_price=float(prices[1]) if len(prices) > 1 else 0.5,
                 city=self._extract_city(m.get("question", "")),
-                end_date=m.get("endDate", ""),
-                volume=float(m.get("liquidity") or m.get("volume24hr") or 0),
+                end_date=m.get("endDateIso") or m.get("endDate", ""),
+                volume=float(m.get("liquidityClob") or m.get("volume24hr") or 0),
                 active=bool(m.get("active", False)),
             )
-        except (KeyError, ValueError, TypeError, _json.JSONDecodeError):
+        except (KeyError, ValueError, TypeError, Exception):
             return None
 
     def _parse_market(self, m: dict) -> Optional[WeatherMarket]:
