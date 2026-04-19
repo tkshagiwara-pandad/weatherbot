@@ -52,28 +52,13 @@ class Trader:
         # (abs_edge, edge, forecast_prob, is_temp, volume, question)
         candidates: list[tuple[float, float, float, bool, float, str]] = []
 
-        _precip_kws = ("rain", "precipitation", "snow", "storm")
-        _precip_logged = 0
-
         for market in markets:
             if not market.city or not market.active:
-                if _precip_logged < 10:
-                    _q = market.question.lower()
-                    if any(kw in _q for kw in _precip_kws):
-                        logger.info("SKIP no_city (precip): city=%r  %s",
-                                    market.city, market.question[:100])
-                        _precip_logged += 1
                 skip_no_city += 1
                 continue
             try:
                 target_date = self._parse_date(market.end_date)
                 if target_date <= today or target_date > today + timedelta(days=self._max_days_ahead):
-                    if _precip_logged < 10:
-                        _q = market.question.lower()
-                        if any(kw in _q for kw in _precip_kws):
-                            logger.info("SKIP date (precip): date=%s  %s",
-                                        target_date, market.question[:100])
-                            _precip_logged += 1
                     skip_date += 1
                     continue
                 forecast = self._weather.get_forecast(market.city, target_date)
@@ -82,9 +67,6 @@ class Trader:
                     continue
                 result = self._strategy.top_candidates(market, forecast)
                 if result is None:
-                    _q = market.question.lower()
-                    if any(kw in _q for kw in ("rain", "precipitation", "snow", "storm")):
-                        logger.info("SKIP unknown_precip: %s", market.question[:100])
                     skip_no_edge += 1
                     continue
                 fp, edge, is_temp = result
