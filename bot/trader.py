@@ -49,8 +49,8 @@ class Trader:
                     city_dates.add((m.city, dt))
         self._weather.prefetch(city_dates)
 
-        # (abs_edge, edge, forecast_prob, is_temp, volume, question)
-        candidates: list[tuple[float, float, float, bool, float, str]] = []
+        # (abs_edge, edge, forecast_prob, is_temp, volume, question, target_date, temp_max_c, temp_min_c)
+        candidates: list[tuple[float, float, float, bool, float, str, date, float, float]] = []
 
         for market in markets:
             if not market.city or not market.active:
@@ -70,7 +70,8 @@ class Trader:
                     skip_no_edge += 1
                     continue
                 fp, edge, is_temp = result
-                candidates.append((abs(edge), edge, fp, is_temp, market.volume, market.question))
+                candidates.append((abs(edge), edge, fp, is_temp, market.volume, market.question,
+                                   target_date, forecast.temp_max_c, forecast.temp_min_c))
                 if abs(edge) >= (self._strategy._min_edge + self._strategy._edge_adjustment):
                     signal = self._strategy.evaluate(market, forecast)
                     if signal:
@@ -133,14 +134,19 @@ class Trader:
 
         if candidates:
             candidates.sort(reverse=True)
-            temp_count = sum(1 for _, _, _, is_temp, _, _ in candidates if is_temp)
+            temp_count = sum(1 for _, _, _, is_temp, *_ in candidates if is_temp)
             logger.info(
                 "Top candidates (%d temp / %d precip out of %d evaluated):",
                 temp_count, len(candidates) - temp_count, len(candidates),
             )
-            for abs_edge, edge, fp, is_temp, volume, question in candidates[:5]:
+            for abs_edge, edge, fp, is_temp, volume, question, tgt_date, tmax, tmin in candidates[:5]:
                 kind = "TEMP" if is_temp else "PRCP"
-                logger.info("  [%s] edge=%+.3f  fp=%.0f%%  vol=$%.0f  %s", kind, edge, fp * 100, volume, question[:60])
+                if is_temp:
+                    logger.info("  [%s] edge=%+.3f  fp=%.0f%%  forecast=max%.1f°C/min%.1f°C  date=%s  vol=$%.0f  %s",
+                                kind, edge, fp * 100, tmax, tmin, tgt_date, volume, question[:60])
+                else:
+                    logger.info("  [%s] edge=%+.3f  fp=%.0f%%  date=%s  vol=$%.0f  %s",
+                                kind, edge, fp * 100, tgt_date, volume, question[:60])
         else:
             logger.info("No candidates evaluated (all markets filtered before edge check)")
 
