@@ -128,6 +128,7 @@ class Trader:
         else:
             logger.info("No markets passed volume filter (min_volume=%.0f USDC)", self._strategy._min_volume)
 
+        self._strategy.resolve_open_trades(self._polymarket)
         self._strategy.self_learn()
 
     # ------------------------------------------------------------------

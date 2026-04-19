@@ -107,6 +107,24 @@ class PolymarketClient:
         q = self.get_book_quote(token_id)
         return q.best_ask if q else None
 
+    def get_market_outcome(self, condition_id: str) -> Optional[str]:
+        """Return "yes" or "no" if the market is resolved, else None."""
+        try:
+            resp = self._session.get(
+                f"{CLOB_URL}/markets/{condition_id}", timeout=10
+            )
+            resp.raise_for_status()
+            m = resp.json()
+            if m.get("active", True):
+                return None
+            for t in m.get("tokens", []):
+                if abs(float(t.get("price", 0)) - 1.0) < 0.01:
+                    outcome = t.get("outcome", "").lower()
+                    return outcome if outcome in ("yes", "no") else None
+        except Exception as exc:
+            logger.debug("Outcome fetch failed for %s: %s", condition_id[:8], exc)
+        return None
+
     def get_book_quote(self, token_id: str) -> Optional[BookQuote]:
         try:
             resp = self._session.get(

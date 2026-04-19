@@ -260,6 +260,39 @@ class Strategy:
         with open(self._log_path, "a") as f:
             f.write(json.dumps(asdict(record)) + "\n")
 
+    def resolve_open_trades(self, polymarket) -> int:
+        """Fetch outcomes for unresolved trades and write back pnl. Returns count resolved."""
+        if not os.path.exists(self._log_path):
+            return 0
+
+        records = []
+        with open(self._log_path) as f:
+            for line in f:
+                records.append(json.loads(line))
+
+        updated = 0
+        for r in records:
+            if r.get("resolved_outcome"):
+                continue
+            outcome = polymarket.get_market_outcome(r["market_id"])
+            if outcome is None:
+                continue
+            r["resolved_outcome"] = outcome
+            won = r["side"] == outcome
+            shares = r["amount_usdc"] / r["market_price"]
+            r["pnl"] = round((shares - r["amount_usdc"]) if won else -r["amount_usdc"], 4)
+            updated += 1
+
+        if updated:
+            tmp = self._log_path + ".tmp"
+            with open(tmp, "w") as f:
+                for r in records:
+                    f.write(json.dumps(r) + "\n")
+            os.replace(tmp, self._log_path)
+            logger.info("Resolved %d trade(s); log updated", updated)
+
+        return updated
+
     def self_learn(self):
         """Adjust edge threshold from resolved trade history (min 20 samples)."""
         if not os.path.exists(self._log_path):
@@ -271,6 +304,12 @@ class Strategy:
                 r = json.loads(line)
                 if r.get("resolved_outcome"):
                     resolved.append(r)
+
+        total_pnl = sum(r.get("pnl") or 0.0 for r in resolved)
+        logger.info(
+            "Resolved trades: %d  total_pnl=%+.2f USDC",
+            len(resolved), total_pnl,
+        )
 
         if len(resolved) < 20:
             return
