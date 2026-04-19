@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.weatherbot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/hagiwaratakashi/weatherbot/.venv/bin/python</string>
+        <string>main.py</string>
+        <string>--dry-run</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/hagiwaratakashi/weatherbot</string>
+
+    <!-- ライブ取引時は WALLET_PRIVATE_KEY をここに設定し --dry-run を外す -->
+    <!-- <key>EnvironmentVariables</key>
+    <dict>
+        <key>WALLET_PRIVATE_KEY</key>
+        <string>0x...</string>
+    </dict> -->
+
+    <key>StandardOutPath</key>
+    <string>/Users/hagiwaratakashi/weatherbot/bot.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/hagiwaratakashi/weatherbot/bot.log</string>
+
+    <!-- クラッシュ時に自動再起動 -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- ログイン時に自動起動 -->
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
