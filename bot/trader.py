@@ -135,7 +135,7 @@ class Trader:
                 kind = "TEMP" if is_temp else "PRCP"
                 logger.info("  [%s] edge=%+.3f  fp=%.0f%%  vol=$%.0f  %s", kind, edge, fp * 100, volume, question[:60])
         else:
-            logger.info("No markets passed volume filter (min_volume=%.0f USDC)", self._strategy._min_volume)
+            logger.info("No candidates evaluated (all markets filtered before edge check)")
 
         self._strategy.resolve_open_trades(self._polymarket)
         self._strategy.self_learn()
