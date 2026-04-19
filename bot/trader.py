@@ -68,6 +68,9 @@ class Trader:
                     continue
                 result = self._strategy.top_candidates(market, forecast)
                 if result is None:
+                    _q = market.question.lower()
+                    if any(kw in _q for kw in ("rain", "precipitation", "snow", "storm")):
+                        logger.info("SKIP unknown_precip: %s", market.question[:100])
                     skip_no_edge += 1
                     continue
                 fp, edge, is_temp = result
