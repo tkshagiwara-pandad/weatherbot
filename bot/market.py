@@ -92,9 +92,23 @@ class PolymarketClient:
                 timeout=15,
             )
             resp.raise_for_status()
-            page: list = resp.json()
+            raw = resp.json()
+
+            # Gamma API may wrap results; normalise to a list
+            if isinstance(raw, dict):
+                page = raw.get("data", raw.get("markets", raw.get("results", [])))
+            else:
+                page = raw
+
             if not page:
                 break
+
+            if offset == 0:
+                sample = page[0] if page else {}
+                logger.info(
+                    "Gamma API first page: %d markets | sample keys: %s | sample question: %s",
+                    len(page), list(sample.keys())[:12], sample.get("question", "")[:60],
+                )
 
             for m in page:
                 if not any(kw in m.get("question", "").lower() for kw in WEATHER_KEYWORDS):
