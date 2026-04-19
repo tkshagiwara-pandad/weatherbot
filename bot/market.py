@@ -63,6 +63,15 @@ class WeatherMarket:
     active: bool
 
 
+@dataclass
+class BookQuote:
+    """Best-of-book snapshot for one outcome token."""
+    best_bid: Optional[float]       # None when no bids exist
+    best_ask: Optional[float]       # None when no asks exist
+    bid_size: float                 # shares at best bid
+    ask_size: float                 # shares at best ask
+
+
 class PolymarketClient:
     def __init__(self):
         self._session = requests.Session()
@@ -95,15 +104,26 @@ class PolymarketClient:
         return markets
 
     def get_best_ask(self, token_id: str) -> Optional[float]:
+        q = self.get_book_quote(token_id)
+        return q.best_ask if q else None
+
+    def get_book_quote(self, token_id: str) -> Optional[BookQuote]:
         try:
             resp = self._session.get(
                 f"{CLOB_URL}/book", params={"token_id": token_id}, timeout=10
             )
             resp.raise_for_status()
-            asks = resp.json().get("asks", [])
-            return float(asks[0]["price"]) if asks else None
+            book = resp.json()
+            bids = book.get("bids", [])
+            asks = book.get("asks", [])
+            return BookQuote(
+                best_bid=float(bids[0]["price"]) if bids else None,
+                best_ask=float(asks[0]["price"]) if asks else None,
+                bid_size=float(bids[0]["size"]) if bids else 0.0,
+                ask_size=float(asks[0]["size"]) if asks else 0.0,
+            )
         except Exception as exc:
-            logger.warning("Price fetch failed for %s: %s", token_id[:8], exc)
+            logger.warning("Book fetch failed for %s: %s", token_id[:8], exc)
             return None
 
     # ------------------------------------------------------------------

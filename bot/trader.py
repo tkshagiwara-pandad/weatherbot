@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 
 import requests
 
-from bot.market import CLOB_URL, PolymarketClient, WeatherMarket
+from bot.market import CLOB_URL, BookQuote, PolymarketClient, WeatherMarket
 from bot.strategy import Strategy, TradeSignal
 from bot.weather import WeatherClient
 from signer.signer import SecurityError, SigningService, TradeRequest
@@ -34,7 +34,7 @@ class Trader:
         logger.info("Scanning markets...")
         markets = self._polymarket.get_weather_markets()
         traded = 0
-        skip_no_city = skip_date = skip_low_vol = skip_no_edge = skip_error = 0
+        skip_no_city = skip_date = skip_low_vol = skip_no_edge = skip_error = skip_no_liq = 0
 
         today = date.today()
 
@@ -76,7 +76,26 @@ class Trader:
                 if abs(edge) >= (self._strategy._min_edge + self._strategy._edge_adjustment):
                     signal = self._strategy.evaluate(market, forecast)
                     if signal:
-                        self._execute(signal)
+                        token_id = (
+                            market.yes_token_id if signal.side == "yes" else market.no_token_id
+                        )
+                        quote = self._polymarket.get_book_quote(token_id)
+                        if quote is None or quote.best_ask is None:
+                            logger.debug("No ask liquidity: %s", market.question[:60])
+                            skip_no_liq += 1
+                            continue
+                        # Recompute edge against real ask price
+                        real_edge = (
+                            signal.forecast_prob - quote.best_ask
+                            if signal.side == "yes"
+                            else (1.0 - signal.forecast_prob) - quote.best_ask
+                        )
+                        if abs(real_edge) < (self._strategy._min_edge + self._strategy._edge_adjustment):
+                            skip_no_edge += 1
+                            continue
+                        signal.market_price = quote.best_ask
+                        signal.edge = real_edge
+                        self._execute(signal, quote)
                         traded += 1
                         if not self._dry_run:
                             time.sleep(1)
@@ -91,8 +110,8 @@ class Trader:
 
         mode = "[DRY RUN] " if self._dry_run else ""
         logger.info(
-            "%sDone: %d traded | skipped: no_city=%d date=%d low_vol=%d no_edge=%d error=%d | remaining=%.2f USDC",
-            mode, traded, skip_no_city, skip_date, skip_low_vol, skip_no_edge, skip_error,
+            "%sDone: %d traded | skipped: no_city=%d date=%d low_vol=%d no_edge=%d no_liq=%d error=%d | remaining=%.2f USDC",
+            mode, traded, skip_no_city, skip_date, skip_low_vol, skip_no_edge, skip_no_liq, skip_error,
             self._signer.daily_remaining(),
         )
 
@@ -112,7 +131,7 @@ class Trader:
         self._strategy.self_learn()
 
     # ------------------------------------------------------------------
-    def _execute(self, signal: TradeSignal):
+    def _execute(self, signal: TradeSignal, quote: BookQuote):
         remaining = self._signer.daily_remaining()
         amount = min(self._strategy._trade_amount, remaining)
         if amount < 1.0:
@@ -120,13 +139,16 @@ class Trader:
             return
 
         if self._dry_run:
+            bid_str = f"{quote.best_bid:.3f}" if quote.best_bid is not None else "—"
             logger.info(
-                "[DRY RUN] Would buy %s  amount=%.2f USDC  price=%.3f  edge=%+.3f\n"
+                "[DRY RUN] Would buy %s  amount=%.2f USDC  ask=%.3f  edge=%+.3f\n"
                 "          market : %s\n"
-                "          forecast_prob=%.0f%%  market_price=%.0f%%",
+                "          forecast_prob=%.0f%%  bid=%s  ask=%.0f%%  spread=%.0f%%",
                 signal.side, amount, signal.market_price, signal.edge,
                 signal.market.question,
-                signal.forecast_prob * 100, signal.market_price * 100,
+                signal.forecast_prob * 100, bid_str,
+                signal.market_price * 100,
+                ((quote.best_ask or 0) - (quote.best_bid or 0)) * 100,
             )
             return
 
