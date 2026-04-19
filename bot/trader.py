@@ -23,12 +23,14 @@ class Trader:
         strategy: Strategy,
         signer: SigningService,
         dry_run: bool = False,
+        max_days_ahead: int = 5,
     ):
         self._weather = weather
         self._polymarket = polymarket
         self._strategy = strategy
         self._signer = signer
         self._dry_run = dry_run
+        self._max_days_ahead = max_days_ahead
 
     def scan_and_trade(self):
         logger.info("Scanning markets...")
@@ -43,7 +45,7 @@ class Trader:
         for m in markets:
             if m.city and m.active:
                 dt = self._parse_date(m.end_date)
-                if today < dt <= today + timedelta(days=14):
+                if today < dt <= today + timedelta(days=self._max_days_ahead):
                     city_dates.add((m.city, dt))
         self._weather.prefetch(city_dates)
 
@@ -57,7 +59,7 @@ class Trader:
             try:
                 target_date = self._parse_date(market.end_date)
                 # 当日・過去 or 14日超先のマーケットはスキップ（予報精度外 / 当日は市場がリアルタイムデータを反映）
-                if target_date <= today or target_date > today + timedelta(days=14):
+                if target_date <= today or target_date > today + timedelta(days=self._max_days_ahead):
                     skip_date += 1
                     continue
                 forecast = self._weather.get_forecast(market.city, target_date)
