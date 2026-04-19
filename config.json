@@ -6,7 +6,6 @@
   "daily_limit_usdc": 50.0,
   "min_edge": 0.05,
   "trade_amount_usdc": 3.0,
-  "gamma_max_spread": 0.20,
   "max_days_ahead": 5,
   "scan_interval_minutes": 60,
   "trade_log": "trades.jsonl"

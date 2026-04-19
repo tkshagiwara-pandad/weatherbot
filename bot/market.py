@@ -81,17 +81,12 @@ class BookQuote:
 
 
 class PolymarketClient:
-    def __init__(self, max_spread: float = 0.20):
+    def __init__(self):
         self._session = requests.Session()
         self._session.headers["User-Agent"] = "weatherbot/1.0"
-        self._max_spread = max_spread
 
     def get_weather_markets(self) -> list[WeatherMarket]:
-        """Fetch active weather markets from Gamma API.
-
-        Pre-filters using Gamma's spread field to avoid calling /book for
-        illiquid markets (spread ≥ 1.0 = ghost book).
-        """
+        """Fetch active weather markets from Gamma API."""
         markets: list[WeatherMarket] = []
         total_seen = weather_seen = 0
         limit = 100
@@ -113,10 +108,6 @@ class PolymarketClient:
                 if not _WEATHER_KW_RE.search(m.get("question", "")):
                     continue
                 weather_seen += 1
-                # Use Gamma's pre-computed spread as a fast liquidity pre-filter
-                spread = float(m.get("spread") or 1.0)
-                if spread > self._max_spread:
-                    continue
                 parsed = self._parse_gamma_market(m)
                 if parsed:
                     markets.append(parsed)
@@ -126,8 +117,8 @@ class PolymarketClient:
             offset += limit
 
         logger.info(
-            "Found %d liquid weather markets (spread≤%.0f%%) from %d weather / %d total",
-            len(markets), self._max_spread * 100, weather_seen, total_seen,
+            "Found %d weather markets from %d weather / %d total",
+            len(markets), weather_seen, total_seen,
         )
         return markets
 
