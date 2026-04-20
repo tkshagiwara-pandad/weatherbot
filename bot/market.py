@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -129,12 +130,23 @@ class PolymarketClient:
         offset = 0
 
         while True:
-            resp = self._session.get(
-                f"{GAMMA_URL}/markets",
-                params={"active": "true", "closed": "false", "limit": limit, "offset": offset},
-                timeout=15,
-            )
-            resp.raise_for_status()
+            for attempt in range(5):
+                resp = self._session.get(
+                    f"{GAMMA_URL}/markets",
+                    params={"active": "true", "closed": "false", "limit": limit, "offset": offset},
+                    timeout=15,
+                )
+                if resp.status_code == 429:
+                    wait = 2 ** attempt
+                    logger.warning("Gamma 429 at offset=%d, retrying in %ds...", offset, wait)
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                break
+            else:
+                logger.error("Gamma API rate-limited after 5 retries at offset=%d, stopping", offset)
+                break
+
             page: list = resp.json()
             if not isinstance(page, list) or not page:
                 break
@@ -151,6 +163,7 @@ class PolymarketClient:
             if len(page) < limit:
                 break
             offset += limit
+            time.sleep(0.15)
 
         logger.info(
             "Found %d weather markets from %d weather / %d total",
