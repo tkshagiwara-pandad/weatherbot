@@ -159,7 +159,11 @@ class WeatherClient:
             tmin = daily.get(f"temperature_2m_min_{model}", [None])[0]
             pp   = daily.get(f"precipitation_probability_max_{model}", [None])[0]
             wc   = daily.get(f"weather_code_{model}", [None])[0]
-            if tmax is not None: tmaxes.append(float(tmax))
+            if tmax is not None:
+                tmaxes.append(float(tmax))
+                logger.info("  model=%-20s  tmax=%.1f°C  tmin=%s",
+                            model, float(tmax),
+                            f"{float(tmin):.1f}°C" if tmin is not None else "N/A")
             if tmin is not None: tmins.append(float(tmin))
             if pp   is not None: pps.append(float(pp))
             if wc   is not None: wcs.append(int(wc))
