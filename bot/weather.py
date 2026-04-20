@@ -22,6 +22,12 @@ _ECMWF_BIAS_CITIES: frozenset[str] = frozenset({
     "Hong Kong", "Osaka",
 })
 
+# Open-Meteo の両モデルが系統的に低めに出る都市への固定補正（°C）。
+# 実測値 vs Open-Meteo の実績差から設定。
+_TEMP_OFFSET_C: dict[str, float] = {
+    "Tokyo": 2.0,
+}
+
 # Polymarket の天気マーケットは公式観測点（主に空港）で解決される。
 # 市街中心ではなく ICAO ステーション座標を使うことで解決値に近づける。
 CITY_COORDS: dict[str, tuple[float, float]] = {
@@ -199,8 +205,9 @@ class WeatherClient:
         wcs         = [d[3] for d in model_data.values() if d[3] is not None]
         tmaxes      = [v for _, v in tmax_pairs]
 
-        temp_max  = _wavg(tmax_pairs)
-        temp_min  = _wavg(tmin_pairs) if tmin_pairs else temp_max - 8.0
+        offset    = _TEMP_OFFSET_C.get(city, 0.0)
+        temp_max  = _wavg(tmax_pairs) + offset
+        temp_min  = (_wavg(tmin_pairs) if tmin_pairs else _wavg(tmax_pairs) - 8.0) + offset
         temp_std  = statistics.pstdev(tmaxes) if len(tmaxes) > 1 else 0.0
         precip_prob = max(v for _, v in pp_pairs) / 100.0 if pp_pairs else 0.0
         code      = max(set(wcs), key=wcs.count) if wcs else 0
