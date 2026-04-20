@@ -13,6 +13,15 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 # JMA（気象庁）は東アジア高精度、ECMWF はグローバル高精度
 _ENSEMBLE_MODELS = ("jma_seamless", "ecmwf_ifs025")
 
+# Open-Meteo の jma_seamless は GSM（約20km）を使用。
+# tenki.jp など国内予報は MSM（約5km）ベースで東京では約4°C高い傾向がある。
+# 該当都市では ECMWF に高い重みをかけて補正する（w_jma : w_ecmwf = 1 : 3）。
+_ECMWF_BIAS_CITIES: frozenset[str] = frozenset({
+    "Tokyo", "Seoul", "Busan", "Taipei", "Beijing", "Shanghai",
+    "Guangzhou", "Shenzhen", "Wuhan", "Chongqing", "Chengdu",
+    "Hong Kong", "Osaka",
+})
+
 # Polymarket の天気マーケットは公式観測点（主に空港）で解決される。
 # 市街中心ではなく ICAO ステーション座標を使うことで解決値に近づける。
 CITY_COORDS: dict[str, tuple[float, float]] = {
@@ -153,30 +162,47 @@ class WeatherClient:
         resp.raise_for_status()
         daily = resp.json().get("daily", {})
 
-        tmaxes, tmins, pps, wcs = [], [], [], []
+        # model → (tmax, tmin, pp, wc)
+        model_data: dict[str, tuple] = {}
         for model in _ENSEMBLE_MODELS:
             tmax = daily.get(f"temperature_2m_max_{model}", [None])[0]
             tmin = daily.get(f"temperature_2m_min_{model}", [None])[0]
             pp   = daily.get(f"precipitation_probability_max_{model}", [None])[0]
             wc   = daily.get(f"weather_code_{model}", [None])[0]
             if tmax is not None:
-                tmaxes.append(float(tmax))
-                logger.info("  model=%-20s  tmax=%.1f°C  tmin=%s",
-                            model, float(tmax),
-                            f"{float(tmin):.1f}°C" if tmin is not None else "N/A")
-            if tmin is not None: tmins.append(float(tmin))
-            if pp   is not None: pps.append(float(pp))
-            if wc   is not None: wcs.append(int(wc))
+                model_data[model] = (float(tmax),
+                                     float(tmin) if tmin is not None else None,
+                                     float(pp) if pp is not None else None,
+                                     int(wc) if wc is not None else None)
+                logger.debug("  model=%-20s  tmax=%.1f°C  tmin=%s",
+                             model, float(tmax),
+                             f"{float(tmin):.1f}°C" if tmin is not None else "N/A")
 
-        if not tmaxes:
+        if not model_data:
             logger.warning("No ensemble data for %s %s", city, date_str)
             self._cache[key] = None
             return None
 
-        temp_max  = statistics.mean(tmaxes)
-        temp_min  = statistics.mean(tmins) if tmins else temp_max - 8.0
+        # City-specific weighting: East-Asian cities use 1:3 (JMA:ECMWF) because
+        # Open-Meteo's jma_seamless is GSM (~20 km) while local forecasters use MSM
+        # (~5 km), which runs ~4°C warmer for Tokyo. ECMWF tracks MSM more closely.
+        use_bias = city in _ECMWF_BIAS_CITIES
+        _weights = {"jma_seamless": 1, "ecmwf_ifs025": 3} if use_bias else {"jma_seamless": 1, "ecmwf_ifs025": 1}
+
+        def _wavg(values: list[tuple[str, float]]) -> float:
+            total_w = sum(_weights.get(m, 1) for m, _ in values)
+            return sum(_weights.get(m, 1) * v for m, v in values) / total_w
+
+        tmax_pairs  = [(m, d[0]) for m, d in model_data.items()]
+        tmin_pairs  = [(m, d[1]) for m, d in model_data.items() if d[1] is not None]
+        pp_pairs    = [(m, d[2]) for m, d in model_data.items() if d[2] is not None]
+        wcs         = [d[3] for d in model_data.values() if d[3] is not None]
+        tmaxes      = [v for _, v in tmax_pairs]
+
+        temp_max  = _wavg(tmax_pairs)
+        temp_min  = _wavg(tmin_pairs) if tmin_pairs else temp_max - 8.0
         temp_std  = statistics.pstdev(tmaxes) if len(tmaxes) > 1 else 0.0
-        precip_prob = max(pps) / 100.0 if pps else 0.0
+        precip_prob = max(v for _, v in pp_pairs) / 100.0 if pp_pairs else 0.0
         code      = max(set(wcs), key=wcs.count) if wcs else 0
         conditions = _WMO_CODES.get(code, f"code_{code}")
 
