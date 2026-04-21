@@ -13,21 +13,6 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 # JMA（気象庁）は東アジア高精度、ECMWF はグローバル高精度
 _ENSEMBLE_MODELS = ("jma_seamless", "ecmwf_ifs025")
 
-# Open-Meteo の jma_seamless は GSM（約20km）を使用。
-# tenki.jp など国内予報は MSM（約5km）ベースで東京では約4°C高い傾向がある。
-# 該当都市では ECMWF に高い重みをかけて補正する（w_jma : w_ecmwf = 1 : 3）。
-_ECMWF_BIAS_CITIES: frozenset[str] = frozenset({
-    "Tokyo", "Seoul", "Busan", "Taipei", "Beijing", "Shanghai",
-    "Guangzhou", "Shenzhen", "Wuhan", "Chongqing", "Chengdu",
-    "Hong Kong", "Osaka",
-})
-
-# Open-Meteo の両モデルが系統的に低めに出る都市への固定補正（°C）。
-# 実測値 vs Open-Meteo の実績差から設定。
-_TEMP_OFFSET_C: dict[str, float] = {
-    "Tokyo": 2.0,
-}
-
 # Polymarket の天気マーケットは公式観測点（主に空港）で解決される。
 # 市街中心ではなく ICAO ステーション座標を使うことで解決値に近づける。
 CITY_COORDS: dict[str, tuple[float, float]] = {
@@ -189,25 +174,14 @@ class WeatherClient:
             self._cache[key] = None
             return None
 
-        # City-specific weighting: East-Asian cities use 1:3 (JMA:ECMWF) because
-        # Open-Meteo's jma_seamless is GSM (~20 km) while local forecasters use MSM
-        # (~5 km), which runs ~4°C warmer for Tokyo. ECMWF tracks MSM more closely.
-        use_bias = city in _ECMWF_BIAS_CITIES
-        _weights = {"jma_seamless": 1, "ecmwf_ifs025": 3} if use_bias else {"jma_seamless": 1, "ecmwf_ifs025": 1}
-
-        def _wavg(values: list[tuple[str, float]]) -> float:
-            total_w = sum(_weights.get(m, 1) for m, _ in values)
-            return sum(_weights.get(m, 1) * v for m, v in values) / total_w
-
         tmax_pairs  = [(m, d[0]) for m, d in model_data.items()]
         tmin_pairs  = [(m, d[1]) for m, d in model_data.items() if d[1] is not None]
         pp_pairs    = [(m, d[2]) for m, d in model_data.items() if d[2] is not None]
         wcs         = [d[3] for d in model_data.values() if d[3] is not None]
         tmaxes      = [v for _, v in tmax_pairs]
 
-        offset    = _TEMP_OFFSET_C.get(city, 0.0)
-        temp_max  = _wavg(tmax_pairs) + offset
-        temp_min  = (_wavg(tmin_pairs) if tmin_pairs else _wavg(tmax_pairs) - 8.0) + offset
+        temp_max  = statistics.mean(tmaxes)
+        temp_min  = statistics.mean([v for _, v in tmin_pairs]) if tmin_pairs else temp_max - 8.0
         temp_std  = statistics.pstdev(tmaxes) if len(tmaxes) > 1 else 0.0
         precip_prob = max(v for _, v in pp_pairs) / 100.0 if pp_pairs else 0.0
         code      = max(set(wcs), key=wcs.count) if wcs else 0
