@@ -149,13 +149,15 @@ class Trader:
         )
 
         if candidates:
-            candidates.sort(key=lambda x: (x[4], x[0]), reverse=True)  # volume desc, then abs_edge desc
+            min_edge_thresh = self._strategy._min_edge + self._strategy._edge_adjustment
+            tradeable = [c for c in candidates if c[0] >= min_edge_thresh]
+            tradeable.sort(key=lambda x: (x[4], x[0]), reverse=True)  # volume desc, then abs_edge desc
             temp_count = sum(1 for _, _, _, is_temp, *_ in candidates if is_temp)
             logger.info(
-                "Top candidates (%d temp / %d precip out of %d evaluated):",
-                temp_count, len(candidates) - temp_count, len(candidates),
+                "Top candidates (%d tradeable / %d temp / %d precip out of %d evaluated):",
+                len(tradeable), temp_count, len(candidates) - temp_count, len(candidates),
             )
-            for abs_edge, edge, fp, is_temp, volume, question, tgt_date, tmax, tmin in candidates[:5]:
+            for abs_edge, edge, fp, is_temp, volume, question, tgt_date, tmax, tmin in tradeable[:5]:
                 kind = "TEMP" if is_temp else "PRCP"
                 if is_temp:
                     logger.info("  [%s] edge=%+.3f  fp=%.0f%%  forecast=max%.1f°C/min%.1f°C  date=%s  vol=$%.0f  %s",
@@ -163,14 +165,18 @@ class Trader:
                 else:
                     logger.info("  [%s] edge=%+.3f  fp=%.0f%%  date=%s  vol=$%.0f  %s",
                                 kind, edge, fp * 100, tgt_date, volume, question[:60])
+            if not tradeable:
+                logger.info("  (no candidates above min_edge threshold)")
         else:
             logger.info("No candidates evaluated (all markets filtered before edge check)")
 
         if self._watch_cities and self._notifier and candidates:
+            min_edge_thresh = self._strategy._min_edge + self._strategy._edge_adjustment
             watched = [
                 (abs_edge, edge, fp, is_temp, volume, question, tgt_date, tmax, tmin)
                 for abs_edge, edge, fp, is_temp, volume, question, tgt_date, tmax, tmin in candidates
-                if any(city.lower() in question.lower() for city in self._watch_cities)
+                if abs_edge >= min_edge_thresh
+                and any(city.lower() in question.lower() for city in self._watch_cities)
             ]
             if watched:
                 lines = []
