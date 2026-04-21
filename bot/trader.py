@@ -149,7 +149,7 @@ class Trader:
         )
 
         if candidates:
-            candidates.sort(reverse=True)
+            candidates.sort(key=lambda x: (x[4], x[0]), reverse=True)  # volume desc, then abs_edge desc
             temp_count = sum(1 for _, _, _, is_temp, *_ in candidates if is_temp)
             logger.info(
                 "Top candidates (%d temp / %d precip out of %d evaluated):",
