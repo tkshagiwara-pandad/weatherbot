@@ -13,7 +13,7 @@
   "trade_log": "trades.jsonl",
   "telegram_token": "8518180737:AAHQbm1NDk7KEwrGaHhfToRfRHpQxN0hsdk",
   "telegram_chat_id": "8702410408",
-  "watch_cities": ["Tokyo"],
+  "watch_cities": ["Tokyo", "Hong Kong"],
   "focus_cities": [
     "Tokyo", "Seoul", "Busan", "Shanghai", "Beijing", "Guangzhou",
     "Shenzhen", "Wuhan", "Chongqing", "Chengdu", "Taipei", "Hong Kong",
