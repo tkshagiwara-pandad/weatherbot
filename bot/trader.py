@@ -38,14 +38,18 @@ class Trader:
         self._notifier = notifier
         self._focus_cities: set[str] = set(focus_cities) if focus_cities else set()
         self._watch_cities: set[str] = set(watch_cities) if watch_cities else set()
+        self._last_forecast_date: date = date.min
 
     def scan_and_trade(self):
+        today = date.today()
+        if self._notifier and self._watch_cities and today != self._last_forecast_date:
+            self._send_forecast_summary(today)
+            self._last_forecast_date = today
+
         logger.info("Scanning markets...")
         markets = self._polymarket.get_weather_markets()
         traded = 0
         skip_no_city = skip_focus = skip_date = skip_no_edge = skip_error = skip_no_liq = 0
-
-        today = date.today()
 
         # スキャン前に unique な (都市, 日付) を一括フェッチ（1ペア=1リクエスト）
         city_dates: set[tuple[str, date]] = set()
@@ -243,6 +247,24 @@ class Trader:
                 f"fp: {signal.forecast_prob:.0%}\n"
                 f"{signal.market.question[:80]}"
             )
+
+    def _send_forecast_summary(self, today: date):
+        tomorrow = today + timedelta(days=1)
+        lines = [f"🌤 <b>Daily Forecast  {today.strftime('%m/%d')}–{tomorrow.strftime('%m/%d')}</b>\n"]
+        for city in sorted(self._watch_cities):
+            f0 = self._weather.get_forecast(city, today)
+            f1 = self._weather.get_forecast(city, tomorrow)
+            city_lines = [f"<b>{city}</b>"]
+            for label, f in [("今日", f0), ("明日", f1)]:
+                if f:
+                    city_lines.append(
+                        f"  {label}: {f.temp_max_c:.1f}°C/{f.temp_min_c:.1f}°C  "
+                        f"雨{f.precip_prob:.0%}  {f.conditions}"
+                    )
+                else:
+                    city_lines.append(f"  {label}: N/A")
+            lines.append("\n".join(city_lines))
+        self._notifier.send("\n\n".join(lines))
 
     @staticmethod
     def _parse_date(end_date_iso: str) -> date:
