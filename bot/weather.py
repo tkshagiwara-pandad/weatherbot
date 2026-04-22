@@ -229,10 +229,20 @@ class WeatherClient:
         except Exception as exc:
             logger.warning("Failed to write forecast log: %s", exc)
 
-    def record_actuals(self, city_dates: set[tuple[str, date]]):
-        """過去日付の実測値を archive API から取得して accuracy_log.jsonl に記録する。"""
+    def record_actuals(self, _city_dates: set[tuple[str, date]] = None):
+        """過去日付の実測値を archive API から取得して accuracy_log.jsonl に記録する。
+        forecast_log.jsonl に記録済みで target_date < today のものを対象とする。"""
         today = date.today()
-        past = {(c, d) for c, d in city_dates if d < today}
+        past: set[tuple[str, date]] = set()
+        try:
+            with open(self._forecast_log) as fp:
+                for line in fp:
+                    r = json.loads(line)
+                    d = date.fromisoformat(r["target_date"])
+                    if d < today:
+                        past.add((r["city"], d))
+        except FileNotFoundError:
+            return
         if not past:
             return
 
