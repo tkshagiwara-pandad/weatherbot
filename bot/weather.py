@@ -10,8 +10,9 @@ logger = logging.getLogger(__name__)
 
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 
-# JMA（気象庁）は東アジア高精度、ECMWF はグローバル高精度
-_ENSEMBLE_MODELS = ("jma_seamless", "ecmwf_ifs025")
+# JMA・ECMWF・GFS（NOAA）・ICON（DWD）の4モデルアンサンブル
+# モデルごとにデータがない変数は自動スキップされる
+_ENSEMBLE_MODELS = ("jma_seamless", "ecmwf_ifs025", "gfs_seamless", "icon_seamless")
 
 # Polymarket の天気マーケットは公式観測点（主に空港）で解決される。
 # 市街中心ではなく ICAO ステーション座標を使うことで解決値に近づける。
