@@ -53,15 +53,19 @@ class Trader:
 
         # スキャン前に unique な (都市, 日付) を一括フェッチ（1ペア=1リクエスト）
         city_dates: set[tuple[str, date]] = set()
+        past_city_dates: set[tuple[str, date]] = set()
         for m in markets:
-            if m.city and m.active:
-                if self._focus_cities and m.city not in self._focus_cities:
-                    continue
-                dt = self._parse_date(m.end_date)
-                if today < dt <= today + timedelta(days=self._max_days_ahead):
-                    city_dates.add((m.city, dt))
+            if not m.city:
+                continue
+            if self._focus_cities and m.city not in self._focus_cities:
+                continue
+            dt = self._parse_date(m.end_date)
+            if today < dt <= today + timedelta(days=self._max_days_ahead):
+                city_dates.add((m.city, dt))
+            elif today - timedelta(days=7) <= dt <= today:
+                past_city_dates.add((m.city, dt))
         self._weather.prefetch(city_dates)
-        self._weather.record_actuals(city_dates)
+        self._weather.record_actuals(past_city_dates)
 
         # (abs_edge, edge, forecast_prob, is_temp, volume, question, target_date, temp_max_c, temp_min_c)
         candidates: list[tuple[float, float, float, bool, float, str, date, float, float]] = []
