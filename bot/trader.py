@@ -61,6 +61,7 @@ class Trader:
                 if today < dt <= today + timedelta(days=self._max_days_ahead):
                     city_dates.add((m.city, dt))
         self._weather.prefetch(city_dates)
+        self._weather.record_actuals(city_dates)
 
         # (abs_edge, edge, forecast_prob, is_temp, volume, question, target_date, temp_max_c, temp_min_c)
         candidates: list[tuple[float, float, float, bool, float, str, date, float, float]] = []

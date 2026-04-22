@@ -1,7 +1,8 @@
+import json
 import logging
 import statistics
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, asdict
+from datetime import date, timedelta
 from typing import Optional
 
 import requests
@@ -9,6 +10,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+ARCHIVE_URL  = "https://archive-api.open-meteo.com/v1/archive"
 
 # JMA・ECMWF・GFS（NOAA）・ICON（DWD）の4モデルアンサンブル
 # モデルごとにデータがない変数は自動スキップされる
@@ -111,8 +113,12 @@ _WMO_CODES: dict[int, str] = {
 class WeatherClient:
     """Open-Meteo forecast client（JMA + ECMWF アンサンブル）。"""
 
-    def __init__(self):
+    def __init__(self, forecast_log: str = "forecast_log.jsonl",
+                 accuracy_log: str = "accuracy_log.jsonl"):
         self._cache: dict[tuple[str, date], Optional[WeatherForecast]] = {}
+        self._forecast_log = forecast_log
+        self._accuracy_log = accuracy_log
+        self._logged: set[tuple[str, date]] = set()  # 重複ログ防止
 
     def prefetch(self, city_dates: set[tuple[str, date]]):
         """スキャン開始前に unique な (都市, 日付) を一括取得。失敗もキャッシュする。"""
@@ -199,4 +205,102 @@ class WeatherClient:
             temp_std_c=temp_std,
         )
         self._cache[key] = result
+        self._log_forecast(city, target_date, result,
+                           {m: d[0] for m, d in model_data.items()})
         return result
+
+    def _log_forecast(self, city: str, target_date: date, f: WeatherForecast,
+                      model_tmax: dict[str, float]):
+        key = (city, target_date)
+        if key in self._logged:
+            return
+        self._logged.add(key)
+        record = {
+            "city": city,
+            "target_date": target_date.isoformat(),
+            "forecast_max_c": round(f.temp_max_c, 2),
+            "forecast_min_c": round(f.temp_min_c, 2),
+            "precip_prob": round(f.precip_prob, 3),
+            "model_tmax": {m: round(v, 2) for m, v in model_tmax.items()},
+        }
+        try:
+            with open(self._forecast_log, "a") as fp:
+                fp.write(json.dumps(record) + "\n")
+        except Exception as exc:
+            logger.warning("Failed to write forecast log: %s", exc)
+
+    def record_actuals(self, city_dates: set[tuple[str, date]]):
+        """過去日付の実測値を archive API から取得して accuracy_log.jsonl に記録する。"""
+        today = date.today()
+        past = {(c, d) for c, d in city_dates if d < today}
+        if not past:
+            return
+
+        # すでに記録済みの (city, date) を読み込んでスキップ
+        recorded: set[tuple[str, str]] = set()
+        try:
+            with open(self._accuracy_log) as fp:
+                for line in fp:
+                    r = json.loads(line)
+                    recorded.add((r["city"], r["target_date"]))
+        except FileNotFoundError:
+            pass
+
+        for city, target_date in sorted(past):
+            if (city, target_date.isoformat()) in recorded:
+                continue
+            coords = CITY_COORDS.get(city)
+            if coords is None:
+                continue
+            lat, lon = coords
+            date_str = target_date.isoformat()
+            try:
+                resp = requests.get(
+                    ARCHIVE_URL,
+                    params={
+                        "latitude": lat, "longitude": lon,
+                        "daily": "temperature_2m_max,temperature_2m_min",
+                        "start_date": date_str, "end_date": date_str,
+                        "timezone": "auto",
+                    },
+                    timeout=20,
+                )
+                resp.raise_for_status()
+                daily = resp.json().get("daily", {})
+                actual_max = daily.get("temperature_2m_max", [None])[0]
+                actual_min = daily.get("temperature_2m_min", [None])[0]
+                if actual_max is None:
+                    continue
+
+                # 対応する予報レコードを探す
+                forecast_max = forecast_min = None
+                model_tmax: dict = {}
+                try:
+                    with open(self._forecast_log) as fp:
+                        for line in fp:
+                            r = json.loads(line)
+                            if r["city"] == city and r["target_date"] == date_str:
+                                forecast_max = r["forecast_max_c"]
+                                forecast_min = r["forecast_min_c"]
+                                model_tmax = r.get("model_tmax", {})
+                                break
+                except FileNotFoundError:
+                    pass
+
+                record = {
+                    "city": city,
+                    "target_date": date_str,
+                    "actual_max_c": round(float(actual_max), 2),
+                    "actual_min_c": round(float(actual_min), 2),
+                    "forecast_max_c": forecast_max,
+                    "forecast_min_c": forecast_min,
+                    "error_max_c": round(float(actual_max) - forecast_max, 2) if forecast_max is not None else None,
+                    "model_tmax": model_tmax,
+                }
+                with open(self._accuracy_log, "a") as fp:
+                    fp.write(json.dumps(record) + "\n")
+                logger.info("Accuracy logged: %s %s  actual=%.1f°C  forecast=%s°C  error=%s°C",
+                            city, date_str, float(actual_max),
+                            forecast_max, record["error_max_c"])
+            except Exception as exc:
+                logger.debug("Archive fetch failed %s %s: %s", city, date_str, exc)
